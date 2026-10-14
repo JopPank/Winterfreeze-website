@@ -14,7 +14,10 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="shell">
+  <main id="site-auth" class="site-auth-screen" aria-live="polite">
+    <section class="site-auth-card"><p class="muted">Chargement de l’espace participants…</p></section>
+  </main>
+  <main class="shell" id="site-shell" hidden>
     <section class="hero">
       <div class="hero-copy">
         <span class="eyebrow">Du 28 au 31 janvier 2027 · Chénéville, Québec</span>
@@ -24,6 +27,11 @@
       <div class="hero-stats" id="countdown" aria-live="off"></div>
     </section>
 
+    <div class="site-account">
+      <span id="site-user"></span>
+      <button class="text-button" id="site-signout" type="button">Se déconnecter</button>
+    </div>
+    <p class="site-notice" id="site-notice" role="alert" hidden></p>
     <nav class="tabbar" id="tabbar" role="tablist" aria-label="Sections"></nav>
 
     <div id="view"></div>

@@ -17,9 +17,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   const saveChecks = () => { try { localStorage.setItem(STORE, JSON.stringify(checks)); } catch { /* stockage indisponible */ } };
   let expenses = [];
   let expenseError = '';
+  let siteAuthError = '';
   let currentUser = null;
   let authChecked = false;
   let authBusy = false;
+  let authStateEventReceived = false;
   let expensesLoading = false;
   let financeChannel = null;
   let financeRefreshTimer = null;
@@ -49,20 +51,67 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     }
     return { totalCents, balances, transfers };
   }
-  async function checkFinanceSession() {
-    if (!supabase || authChecked) return;
-    const { data, error } = await supabase.auth.getSession();
-    authChecked = true;
-    if (error) {
-      expenseError = `Impossible de vérifier la session : ${error.message}`;
-    } else {
-      currentUser = data.session?.user || null;
-      if (currentUser) {
-        await refreshExpenses();
-        startFinanceSync();
-      }
+  function updateSiteAccess() {
+    const shell = $('#site-shell');
+    const authScreen = $('#site-auth');
+    shell.hidden = true;
+
+    if (!supabase) {
+      authScreen.hidden = false;
+      authScreen.innerHTML = `<section class="site-auth-card"><span class="eyebrow">Configuration requise</span><h1>Winterfreeze 2027</h1><p>La connexion privée n’est pas configurée. Vérifiez les paramètres Supabase du site.</p></section>`;
+      return;
     }
-    if (location.hash === '#finances') show('finances');
+    if (!authChecked) {
+      authScreen.hidden = false;
+      authScreen.innerHTML = '<section class="site-auth-card"><p class="muted">Vérification de votre session…</p></section>';
+      return;
+    }
+    if (!currentUser) {
+      authScreen.hidden = false;
+      authScreen.innerHTML = `<section class="site-auth-card">
+        <span class="eyebrow">Espace privé des participants</span>
+        <h1>Winterfreeze 2027</h1>
+        <p>Connectez-vous avec le compte que l’organisateur vous a créé pour accéder aux détails du voyage et aux finances partagées.</p>
+        ${siteAuthError ? `<p class="site-auth-error" role="alert">${esc(siteAuthError)}</p>` : ''}
+        <form id="site-login" class="site-login-form">
+          <label>Courriel<input name="email" type="email" autocomplete="username" required></label>
+          <label>Mot de passe<input name="password" type="password" autocomplete="current-password" required></label>
+          <button class="btn" type="submit"${authBusy ? ' disabled' : ''}>${authBusy ? 'Connexion…' : 'Se connecter'}</button>
+        </form>
+      </section>`;
+      $('#site-shell').querySelector('#view').innerHTML = '';
+      return;
+    }
+
+    authScreen.hidden = true;
+    shell.hidden = false;
+    $('#site-user').textContent = currentUser.email || 'Participant connecté';
+    $('#site-notice').hidden = !siteAuthError;
+    $('#site-notice').textContent = siteAuthError;
+    show(location.hash.slice(1));
+  }
+
+  async function checkSiteSession() {
+    if (!supabase) {
+      authChecked = true;
+      updateSiteAccess();
+      return;
+    }
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (authStateEventReceived) return;
+      if (error) siteAuthError = `Impossible de vérifier la session : ${error.message}`;
+      currentUser = data.session?.user || null;
+    } catch (error) {
+      if (authStateEventReceived) return;
+      siteAuthError = `Impossible de vérifier la session : ${error instanceof Error ? error.message : String(error)}`;
+    }
+    authChecked = true;
+    updateSiteAccess();
+    if (currentUser) {
+      await refreshExpenses();
+      startFinanceSync();
+    }
   }
   async function refreshExpenses() {
     if (!supabase || !currentUser) return;
@@ -103,8 +152,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   }
   if (supabase) {
     supabase.auth.onAuthStateChange((_event, session) => {
+      authStateEventReceived = true;
       currentUser = session?.user || null;
       authChecked = true;
+      siteAuthError = '';
+      updateSiteAccess();
       if (currentUser) {
         void refreshExpenses().then(startFinanceSync);
       } else {
@@ -112,7 +164,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         expenses = [];
         expensesLoading = false;
       }
-      if (location.hash === '#finances') show('finances');
     });
   }
 
@@ -272,22 +323,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       return `<section class="block"><span class="eyebrow">Configuration requise</span><h2>Finances</h2>
         <p class="lead">Le partage privé des dépenses n’est pas encore configuré. Ajoutez l’URL et la clé publique du projet Supabase dans <code>supabase-config.js</code> et appliquez le schéma décrit dans README.md.</p></section>`;
     }
-    if (!authChecked) {
-      void checkFinanceSession();
+    if (!authChecked || !currentUser) {
       return '<section class="block"><p class="muted">Vérification de la session sécurisée…</p></section>';
-    }
-    if (!currentUser) {
-      return `<div class="finance-auth-wrap"><section class="finance-form-card">
-        <span class="eyebrow">Espace privé des participants</span><h2>Connexion aux finances</h2>
-        <p class="lead">Connectez-vous avec le compte que l’organisateur vous a créé pour consulter et gérer les dépenses partagées.</p>
-        ${expenseError ? `<p class="finance-error" role="alert">${esc(expenseError)}</p>` : ''}
-        <form id="finance-login" class="expense-form">
-          <label>Courriel<input name="email" type="email" autocomplete="username" required></label>
-          <label>Mot de passe<input name="password" type="password" autocomplete="current-password" required></label>
-          <button class="btn submit-expense" type="submit"${authBusy ? ' disabled' : ''}>${authBusy ? 'Connexion…' : 'Se connecter'} <span aria-hidden="true">↗</span></button>
-        </form>
-        <button class="text-button" type="button" id="reset-password">Mot de passe oublié?</button>
-      </section></div>`;
     }
     if (expensesLoading) return '<section class="block"><p class="muted">Chargement des dépenses partagées…</p></section>';
     const { totalCents, balances, transfers } = calculateSettlements();
@@ -319,7 +356,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
               ${expense.created_by === currentUser.id ? `<button class="delete-button" type="button" data-delete-expense="${esc(expense.id)}" aria-label="Supprimer ${esc(expense.description)}">×</button>` : ''}
             </article>`).join('') : '<p class="muted">Aucune dépense pour l’instant. Ajoutez les frais au fur et à mesure.</p>'}
           </div>
-          <div class="finance-account"><span>Connecté : ${esc(currentUser.email || 'participant')}</span><button class="text-button" type="button" id="sign-out">Se déconnecter</button></div>
         </section>
       </div>
       <aside class="finance-aside">
@@ -375,6 +411,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   tabbar.innerHTML = tabs.map((t, i) => `<button class="tab" role="tab" data-id="${t.id}" aria-selected="false"><small>${String(i + 1).padStart(2, '0')}</small>${esc(t.label)}</button>`).join('');
 
   function show(id) {
+    if (!authChecked || !currentUser) return;
     const tab = tabs.find((t) => t.id === id) || tabs[0];
     view.innerHTML = tab.render();
     tabbar.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.id === tab.id)));
@@ -406,14 +443,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       await refreshExpenses();
       return;
     }
-    if (e.target.id === 'sign-out') {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        expenseError = `Impossible de fermer la session : ${error.message}`;
-        show('finances');
-      }
-      return;
-    }
     const chip = e.target.closest('[data-eq]');
     if (chip) { renderEquipement.active = chip.dataset.eq; show('equipement'); return; }
     if (e.target.id === 'reset-epi') {
@@ -422,24 +451,42 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       show('epicerie');
     }
   });
-  view.addEventListener('submit', async (e) => {
-    if (e.target.id === 'finance-login') {
-      e.preventDefault();
-      if (!supabase) return;
-      const fields = new FormData(e.target);
-      const email = String(fields.get('email') || '').trim();
-      const password = String(fields.get('password') || '');
-      authBusy = true;
-      expenseError = '';
-      show('finances');
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+  $('#site-auth').addEventListener('submit', async (e) => {
+    if (e.target.id !== 'site-login') return;
+    e.preventDefault();
+    if (!supabase) return;
+    const fields = new FormData(e.target);
+    const email = String(fields.get('email') || '').trim();
+    const password = String(fields.get('password') || '');
+    authBusy = true;
+    siteAuthError = '';
+    updateSiteAccess();
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) siteAuthError = `Connexion impossible : ${error.message}`;
+      else if (!data.session) siteAuthError = 'La connexion n’a pas créé de session active. Réessayez ou communiquez avec la personne qui organise le voyage.';
+    } catch (error) {
+      siteAuthError = `Connexion impossible : ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
       authBusy = false;
-      if (error) {
-        expenseError = `Connexion impossible : ${error.message}`;
-        show('finances');
-      }
-      return;
     }
+    if (siteAuthError) {
+      updateSiteAccess();
+    }
+  });
+  $('#site-signout').addEventListener('click', async () => {
+    if (!supabase) return;
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) siteAuthError = `Impossible de fermer la session : ${error.message}`;
+    } catch (error) {
+      siteAuthError = `Impossible de fermer la session : ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (siteAuthError) {
+      updateSiteAccess();
+    }
+  });
+  view.addEventListener('submit', async (e) => {
     if (e.target.id !== 'expense-form') return;
     e.preventDefault();
     const form = e.target;
@@ -482,6 +529,5 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   }
   tick();
   setInterval(tick, 30000);
-
-  show(location.hash.slice(1));
+  void checkSiteSession();
 })();

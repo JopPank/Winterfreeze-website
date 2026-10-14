@@ -11,9 +11,22 @@
   --sans: 'DM Sans', Arial, sans-serif;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body { margin: 0; color: var(--ink); background: var(--paper); font: 14px/1.55 var(--sans); }
 .shell { max-width: 1120px; margin: 0 auto; padding: 0 20px 40px; }
+.site-auth-screen { display: grid; min-height: 100vh; place-items: center; padding: 24px; background: radial-gradient(circle at 80% 15%, #3f7ea622, transparent 55%), linear-gradient(135deg, #0b2233, #1e4f6e 70%, #6aa5c4); }
+.site-auth-card { width: min(100%, 440px); padding: clamp(24px, 5vw, 42px); border: 1px solid #ffffff55; border-radius: 6px; background: var(--paper); box-shadow: 0 20px 60px #08172455; }
+.site-auth-card h1 { margin: 10px 0; color: var(--navy); font: 700 clamp(32px, 6vw, 44px)/1.1 var(--serif); }
+.site-auth-card > p:not(.site-auth-error) { color: var(--muted); }
+.site-login-form { display: grid; gap: 14px; margin-top: 22px; }
+.site-login-form label { display: grid; gap: 5px; color: #43524b; font-size: 11px; font-weight: 700; }
+.site-login-form input { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 4px; padding: 9px 10px; color: var(--ink); background: var(--white); font: 500 13px var(--sans); }
+.site-login-form input:focus { outline: 2px solid #7da694; outline-offset: 1px; }
+.site-login-form .btn { margin-top: 4px; }
+.site-auth-error, .site-notice { padding: 10px; border: 1px solid #d99; color: #8a2525; background: #fff3f0; font-size: 12px; }
+.site-account { display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 8px 2px; color: var(--muted); font-size: 11px; }
+.site-notice { margin: 8px 0; }
 .eyebrow { display: block; color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 
 .hero { position: relative; min-height: 330px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; overflow: hidden; margin-top: 26px; padding: 37px 45px; color: #fff; border-radius: 6px;
