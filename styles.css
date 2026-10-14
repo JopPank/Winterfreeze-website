@@ -83,7 +83,16 @@ a { color: #1e6a96; }
 .check input:checked + span { color: #8a98a1; text-decoration: line-through; }
 .check .qty { flex: none; min-width: 26px; color: var(--accent); font-weight: 700; }
 .check small { display: block; color: var(--muted); }
-
+.check-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.check-row .check { flex: 1; min-width: 0; border-bottom: 0; }
+.checklist-item-actions { display: flex; flex: none; gap: 12px; }
+.checklist-delete { color: #a33; }
+.checklist-manager { margin: 18px 0; padding: 14px; border: 1px solid var(--line); background: var(--white); }
+.checklist-add-form, .checklist-edit-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: end; gap: 12px; margin-top: 14px; }
+.checklist-edit-form { grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); width: 100%; margin: 0; padding: 12px; background: #f8fafb; }
+.checklist-add-form label, .checklist-edit-form label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.checklist-add-form input, .checklist-add-form select, .checklist-edit-form input, .checklist-edit-form select { min-width: 0; width: 100%; min-height: 38px; border: 1px solid var(--line); padding: 8px; color: var(--ink); background: var(--white); font: inherit; }
+.checklist-form-actions { display: flex; align-items: center; gap: 12px; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -161,4 +170,8 @@ tr.total td { font-weight: 700; border-bottom: 0; }
   .expense-summary { grid-template-columns: 1fr; gap: 14px; }
   .expense-total { border-right: 0; border-bottom: 1px solid #ccd7d0; padding: 0 0 13px; }
   .participant-balances { grid-template-columns: 1fr; }
+  .check-row { align-items: flex-start; gap: 4px; flex-wrap: wrap; }
+  .check-row .check { width: 100%; }
+  .checklist-item-actions { padding: 0 0 8px 28px; }
+  .checklist-edit-form { grid-template-columns: 1fr; }
 }

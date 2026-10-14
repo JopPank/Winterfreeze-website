@@ -12,19 +12,146 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     ? createClient(supabaseConfig.url, supabaseConfig.anonKey)
     : null;
 
-  let checks = {};
-  try { checks = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { checks = {}; }
-  const saveChecks = () => { try { localStorage.setItem(STORE, JSON.stringify(checks)); } catch { /* stockage indisponible */ } };
+  let legacyChecks = {};
+  try { legacyChecks = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { legacyChecks = {}; }
   let expenses = [];
+  let checklistItems = [];
+  let checkedItemIds = new Set();
   let expenseError = '';
+  let checklistError = '';
   let siteAuthError = '';
   let currentUser = null;
   let authChecked = false;
   let authBusy = false;
   let authStateEventReceived = false;
   let expensesLoading = false;
+  let checklistLoading = false;
+  let checklistLoaded = false;
+  let checklistEditMode = false;
+  let editingChecklistItem = null;
   let financeChannel = null;
   let financeRefreshTimer = null;
+  let checklistChannel = null;
+  let checklistRefreshTimer = null;
+  let checklistLoadPromise = null;
+  function defaultChecklistRows() {
+    const rows = [];
+    T.avantDepart.forEach((item, index) => rows.push({
+      list_key: 'depart', group_name: '', label: item.t, quantity: '', detail: item.q || '', status: '',
+      sort_order: index, seed_key: `depart:${index}`,
+    }));
+    T.epicerie.forEach((section, sectionIndex) => section.items.forEach((item, index) => rows.push({
+      list_key: 'epicerie', group_name: section.magasin, label: item[1], quantity: String(item[0]), detail: item[2] || '', status: '',
+      sort_order: index, seed_key: `epi:${sectionIndex}:${index}`,
+    })));
+    Object.entries(window.EQUIP).forEach(([person, items]) => items.forEach((label, index) => rows.push({
+      list_key: 'equipement', group_name: person, label, quantity: '', detail: '', status: '',
+      sort_order: index, seed_key: `eq:${person}:${index}`,
+    })));
+    window.WTFBOX.forEach((item, index) => rows.push({
+      list_key: 'box', group_name: '', label: item.item, quantity: '', detail: '', status: item.apres2026 || '',
+      sort_order: index, seed_key: `box:${index}`,
+    }));
+    return rows;
+  }
+
+  async function refreshChecklists() {
+    if (!supabase || !currentUser) return;
+    const requestedBy = currentUser.id;
+    checklistLoading = true;
+    if (['survol', 'epicerie', 'equipement', 'box'].includes(location.hash.slice(1))) show(location.hash.slice(1));
+    try {
+      const [{ data: items, error: itemsError }, { data: checksData, error: checksError }] = await Promise.all([
+        supabase.from('winterfreeze_checklist_items')
+          .select('id, list_key, group_name, label, quantity, detail, status, sort_order, seed_key, created_at')
+          .order('list_key').order('group_name').order('sort_order').order('created_at'),
+        supabase.from('winterfreeze_checklist_checks').select('item_id, checked'),
+      ]);
+      if (currentUser?.id !== requestedBy) return;
+      if (itemsError || checksError) {
+        checklistError = `Impossible de charger les listes partagées : ${(itemsError || checksError).message}`;
+        checklistItems = [];
+        checkedItemIds = new Set();
+        checklistLoaded = false;
+      } else {
+        checklistItems = items || [];
+        checkedItemIds = new Set((checksData || []).filter((row) => row.checked).map((row) => row.item_id));
+        checklistError = '';
+        checklistLoaded = true;
+      }
+    } catch (error) {
+      if (currentUser?.id !== requestedBy) return;
+      checklistError = `Impossible de charger les listes partagées : ${error instanceof Error ? error.message : String(error)}`;
+      checklistItems = [];
+      checkedItemIds = new Set();
+      checklistLoaded = false;
+    } finally {
+      if (currentUser?.id === requestedBy) checklistLoading = false;
+    }
+    if (currentUser?.id === requestedBy && ['survol', 'epicerie', 'equipement', 'box'].includes(location.hash.slice(1))) show(location.hash.slice(1));
+  }
+
+  async function initializeChecklists() {
+    if (!supabase || !currentUser || checklistLoadPromise) return checklistLoadPromise;
+    const requestedBy = currentUser.id;
+    checklistLoadPromise = (async () => {
+      checklistLoading = true;
+      checklistError = '';
+      if (['survol', 'epicerie', 'equipement', 'box'].includes(location.hash.slice(1))) show(location.hash.slice(1));
+      try {
+        const checkedSeedKeys = Object.keys(legacyChecks).filter((key) => legacyChecks[key]);
+        const { data: seededNow, error } = await supabase.rpc('seed_winterfreeze_checklists', {
+          p_items: defaultChecklistRows(),
+          p_checked_seed_keys: checkedSeedKeys,
+        });
+        if (currentUser?.id !== requestedBy) return;
+        if (error) {
+          checklistError = `Impossible d’initialiser les listes partagées : ${error.message}`;
+          return;
+        }
+        if (seededNow) {
+          try { localStorage.removeItem(STORE); } catch { /* stockage indisponible */ }
+        }
+        legacyChecks = {};
+        await refreshChecklists();
+        startChecklistSync();
+      } catch (error) {
+        if (currentUser?.id === requestedBy) checklistError = `Impossible d’initialiser les listes partagées : ${error instanceof Error ? error.message : String(error)}`;
+      } finally {
+        if (currentUser?.id === requestedBy) {
+          checklistLoading = false;
+          if (['survol', 'epicerie', 'equipement', 'box'].includes(location.hash.slice(1))) show(location.hash.slice(1));
+        }
+      }
+    })().finally(() => {
+      checklistLoadPromise = null;
+    });
+    return checklistLoadPromise;
+  }
+
+  function stopChecklistSync() {
+    if (checklistRefreshTimer) clearInterval(checklistRefreshTimer);
+    checklistRefreshTimer = null;
+    if (checklistChannel && supabase) void supabase.removeChannel(checklistChannel);
+    checklistChannel = null;
+  }
+
+  function startChecklistSync() {
+    if (!supabase || !currentUser) return;
+    stopChecklistSync();
+    checklistChannel = supabase
+      .channel('winterfreeze-checklists')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'winterfreeze_checklist_items' }, () => void refreshChecklists())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'winterfreeze_checklist_checks' }, () => void refreshChecklists())
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          checklistError = 'La mise à jour en direct des listes est indisponible. Les listes seront actualisées automatiquement.';
+          if (['survol', 'epicerie', 'equipement', 'box'].includes(location.hash.slice(1))) show(location.hash.slice(1));
+        }
+      });
+    checklistRefreshTimer = setInterval(() => void refreshChecklists(), 30000);
+  }
+
   function calculateSettlements() {
     const totalCents = expenses.reduce((sum, expense) => sum + Math.round(expense.amount * 100), 0);
     const baseShare = Math.floor(totalCents / T.participants.length);
@@ -111,6 +238,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (currentUser) {
       await refreshExpenses();
       startFinanceSync();
+      await initializeChecklists();
     }
   }
   async function refreshExpenses() {
@@ -159,29 +287,88 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       updateSiteAccess();
       if (currentUser) {
         void refreshExpenses().then(startFinanceSync);
+        void initializeChecklists();
       } else {
         stopFinanceSync();
+        stopChecklistSync();
         expenses = [];
         expensesLoading = false;
+        checklistItems = [];
+        checkedItemIds = new Set();
+        checklistLoading = false;
+        checklistLoaded = false;
+        checklistEditMode = false;
+        editingChecklistItem = null;
       }
     });
   }
 
-  const checkItem = (key, html, extra = '') => `
-    <label class="check">
-      <input type="checkbox" data-key="${esc(key)}"${checks[key] ? ' checked' : ''}>
-      ${extra}<span>${html}</span>
-    </label>`;
+  const checkItem = (item, html, extra = '', controls = '') => `
+    <div class="check-row">
+      <label class="check">
+        <input type="checkbox" data-check-item="${esc(item.id)}"${checkedItemIds.has(item.id) ? ' checked' : ''}>
+        ${extra}<span>${html}</span>
+      </label>${controls}
+    </div>`;
 
-  const progress = (keys) => {
-    const done = keys.filter((k) => checks[k]).length;
-    return { done, total: keys.length, pct: keys.length ? Math.round((done / keys.length) * 100) : 0 };
+  const progressBar = (items, id) => {
+    const done = items.filter((item) => checkedItemIds.has(item.id)).length;
+    const pct = items.length ? Math.round((done / items.length) * 100) : 0;
+    return `<div class="heading"><span class="count" data-count="${id}">${done} SUR ${items.length} COMPLÉTÉS</span></div>
+      <div class="progress"><i data-bar="${id}" style="width:${pct}%"></i></div>`;
   };
-  const progressBar = (keys, id) => {
-    const p = progress(keys);
-    return `<div class="heading"><span class="count" data-count="${id}">${p.done} SUR ${p.total} COMPLÉTÉS</span></div>
-      <div class="progress"><i data-bar="${id}" style="width:${p.pct}%"></i></div>`;
-  };
+
+  const listItemsFor = (listKey, groupName) => checklistItems.filter((item) =>
+    item.list_key === listKey && (groupName === undefined || item.group_name === groupName));
+
+  function checklistGroupOptions(listKey) {
+    if (listKey === 'epicerie') return T.epicerie.map((section) => section.magasin);
+    if (listKey === 'equipement') return Object.keys(window.EQUIP);
+    return [];
+  }
+
+  function checklistFieldMarkup(item, listKey, groupName, editing) {
+    const itemValue = editing ? item.label : '';
+    const detailValue = editing ? item.detail : '';
+    const quantityValue = editing ? item.quantity : '';
+    const statusValue = editing ? item.status : '';
+    const groupValue = editing ? item.group_name : groupName;
+    const groupOptions = checklistGroupOptions(listKey);
+    return `
+      <input type="hidden" name="list_key" value="${esc(listKey)}">
+      ${groupOptions.length ? `<label>${listKey === 'epicerie' ? 'Magasin' : 'Personne'}
+        <select name="group_name" required>${groupOptions.map((name) => `<option value="${esc(name)}"${name === groupValue ? ' selected' : ''}>${esc(name === 'Tous' ? 'Pour tous' : name)}</option>`).join('')}</select>
+      </label>` : `<input type="hidden" name="group_name" value="${esc(groupValue)}">`}
+      <label>Article<input name="label" maxlength="180" required value="${esc(itemValue)}"></label>
+      ${listKey === 'epicerie' ? `<label>Quantité<input name="quantity" value="${esc(quantityValue)}" placeholder="1"></label>` : ''}
+      ${listKey === 'epicerie' ? `<label>Note<input name="detail" value="${esc(detailValue)}"></label>` : ''}
+      ${listKey === 'depart' ? `<label>Responsable<input name="detail" value="${esc(detailValue)}"></label>` : ''}
+      ${listKey === 'box' ? `<label>Statut<input name="status" value="${esc(statusValue)}" placeholder="GOOD, MAYBE…"></label>` : ''}`;
+  }
+
+  function renderChecklistEditForm(item) {
+    return `<form class="checklist-edit-form" data-checklist-update="${esc(item.id)}">
+      ${checklistFieldMarkup(item, item.list_key, item.group_name, true)}
+      <div class="checklist-form-actions"><button class="btn" type="submit">Enregistrer</button><button class="text-button" type="button" data-cancel-list-edit>Annuler</button></div>
+    </form>`;
+  }
+
+  function renderChecklistControls(item) {
+    if (!checklistEditMode) return '';
+    if (editingChecklistItem === item.id) return renderChecklistEditForm(item);
+    return `<div class="checklist-item-actions"><button class="text-button" type="button" data-edit-list-item="${esc(item.id)}">Modifier</button>
+      <button class="text-button checklist-delete" type="button" data-delete-list-item="${esc(item.id)}">Supprimer</button></div>`;
+  }
+
+  function renderChecklistManager(listKey, groupName) {
+    return `<section class="checklist-manager">
+      <button class="btn ghost" type="button" data-toggle-list-editor>${checklistEditMode ? 'Terminer la modification' : 'Modifier la liste'}</button>
+      ${checklistEditMode ? `<form class="checklist-add-form" data-checklist-add>
+        ${checklistFieldMarkup(null, listKey, groupName, false)}
+        <button class="btn" type="submit">Ajouter à la liste</button>
+      </form>` : ''}
+    </section>`;
+  }
 
   const tabs = [
     { id: 'survol', label: 'Survol', render: renderSurvol },
@@ -247,8 +434,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
     <section class="block">
       <span class="eyebrow">À faire avant le départ du chalet</span><h2>Ménage du dimanche</h2>
-      ${progressBar(T.avantDepart.map((_, i) => `depart:${i}`), 'depart')}
-      ${T.avantDepart.map((a, i) => checkItem(`depart:${i}`, esc(a.t) + (a.q ? ` <span class="pill">${esc(a.q)}</span>` : ''))).join('')}
+      ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
+      ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
+      ${(() => {
+        const items = listItemsFor('depart');
+        return `${progressBar(items, 'depart')}${items.map((item) => checkItem(item, esc(item.label) + (item.detail ? ` <span class="pill">${esc(item.detail)}</span>` : ''), '', renderChecklistControls(item))).join('')}`;
+      })()}
+      ${renderChecklistManager('depart', '')}
     </section>`;
   }
 
@@ -269,40 +461,48 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   }
 
   function renderEpicerie() {
-    const keys = [];
-    const sections = T.epicerie.map((s, si) => {
-      const html = s.items.map((it, i) => {
-        const key = `epi:${si}:${i}`; keys.push(key);
-        return checkItem(key, esc(it[1]) + (it[2] ? `<small>${esc(it[2])}</small>` : ''), `<span class="qty">${esc(it[0])}×</span>`);
-      }).join('');
-      return `<section class="block"><h2>${esc(s.magasin)}</h2>${html}</section>`;
+    const items = listItemsFor('epicerie');
+    const sections = T.epicerie.map((section) => {
+      const groupItems = listItemsFor('epicerie', section.magasin);
+      const html = groupItems.map((item) => checkItem(
+        item,
+        `${esc(item.label)}${item.detail ? `<small>${esc(item.detail)}</small>` : ''}`,
+        item.quantity ? `<span class="qty">${esc(item.quantity)}×</span>` : '',
+        renderChecklistControls(item),
+      )).join('');
+      return `<section class="block"><h2>${esc(section.magasin)}</h2>${html || '<p class="muted">Aucun article dans cette liste.</p>'}</section>`;
     }).join('');
     return `
     <section class="block">
       <div class="heading"><div><span class="eyebrow">Magasiner</span><h2>Liste d’épicerie</h2></div></div>
-      ${progressBar(keys, 'epi')}
+      ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
+      ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
+      ${progressBar(items, 'epi')}
       <button class="btn ghost" id="reset-epi" type="button">Tout décocher</button>
     </section>
+    ${renderChecklistManager('epicerie', T.epicerie[0]?.magasin || '')}
     <div class="grid">${sections}</div>`;
   }
 
   function renderEquipement() {
     const names = Object.keys(window.EQUIP);
     const active = renderEquipement.active && names.includes(renderEquipement.active) ? renderEquipement.active : names[0];
-    const items = window.EQUIP[active];
-    const keys = items.map((_, i) => `eq:${active}:${i}`);
+    const items = listItemsFor('equipement', active);
     const label = (n) => (n === 'Tous' ? 'Pour tous' : n);
     return `
     <section class="block">
       <span class="eyebrow">Apportons l’essentiel</span><h2>Équipement</h2>
       <div class="chips" role="group" aria-label="Personne">${names.map((n) => `<button type="button" class="chip" data-eq="${esc(n)}" aria-pressed="${n === active}">${esc(label(n))}</button>`).join('')}</div>
-      ${progressBar(keys, 'eq')}
-      ${items.map((it, i) => checkItem(keys[i], esc(it))).join('')}
+      ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
+      ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
+      ${progressBar(items, 'eq')}
+      ${items.map((item) => checkItem(item, esc(item.label), '', renderChecklistControls(item))).join('') || '<p class="muted">Aucun article dans cette liste.</p>'}
+      ${renderChecklistManager('equipement', active)}
     </section>`;
   }
 
   function renderBox() {
-    const keys = window.WTFBOX.map((_, i) => `box:${i}`);
+    const items = listItemsFor('box');
     const status = (s) => {
       const u = s.toUpperCase();
       if (u.startsWith('BUY') || u.includes('NO MORE') || u.includes('NO WAND')) return 'hot';
@@ -313,8 +513,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     <section class="block">
       <span class="eyebrow">Inventaire après WTF 2026</span><h2>La WTF Box</h2>
       <p class="lead">État de la boîte à la fin de 2026. Les items « À acheter » sont à ajouter avant de partir.</p>
-      ${progressBar(keys, 'box')}
-      ${window.WTFBOX.map((b, i) => checkItem(keys[i], `${esc(b.item)} <span class="pill ${status(b.apres2026)}">${esc(b.apres2026 || '—')}</span>`)).join('')}
+      ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
+      ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
+      ${progressBar(items, 'box')}
+      ${items.map((item) => checkItem(item, `${esc(item.label)} ${item.status ? `<span class="pill ${status(item.status)}">${esc(item.status)}</span>` : ''}`, '', renderChecklistControls(item))).join('') || '<p class="muted">Aucun article dans cette liste.</p>'}
+      ${renderChecklistManager('box', '')}
     </section>`;
   }
 
@@ -423,16 +626,27 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   });
   window.addEventListener('hashchange', () => show(location.hash.slice(1)));
 
-  view.addEventListener('change', (e) => {
-    const cb = e.target.closest('input[data-key]');
+  view.addEventListener('change', async (e) => {
+    const cb = e.target.closest('input[data-check-item]');
     if (!cb) return;
-    if (cb.checked) checks[cb.dataset.key] = true; else delete checks[cb.dataset.key];
-    saveChecks();
-    const id = cb.dataset.key.split(':')[0];
-    const keys = [...view.querySelectorAll('input[data-key]')].map((i) => i.dataset.key).filter((k) => k.split(':')[0] === id);
-    const p = progress(keys);
-    view.querySelectorAll(`[data-bar="${id}"]`).forEach((el) => { el.style.width = p.pct + '%'; });
-    view.querySelectorAll(`[data-count="${id}"]`).forEach((el) => { el.textContent = `${p.done} SUR ${p.total} COMPLÉTÉS`; });
+    const itemId = cb.dataset.checkItem;
+    cb.disabled = true;
+    if (cb.checked) checkedItemIds.add(itemId); else checkedItemIds.delete(itemId);
+    show(location.hash.slice(1));
+    try {
+      const { error } = await supabase.from('winterfreeze_checklist_checks').upsert({
+        item_id: itemId,
+        checked: cb.checked,
+        updated_by: currentUser.id,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'item_id' });
+      if (error) throw new Error(error.message);
+    } catch (error) {
+      const message = `Impossible d’enregistrer la case cochée : ${error instanceof Error ? error.message : String(error)}`;
+      await refreshChecklists();
+      checklistError = message;
+      show(location.hash.slice(1));
+    }
   });
   view.addEventListener('click', async (e) => {
     const deleteButton = e.target.closest('[data-delete-expense]');
@@ -443,11 +657,52 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       await refreshExpenses();
       return;
     }
+    if (e.target.closest('[data-toggle-list-editor]')) {
+      checklistEditMode = !checklistEditMode;
+      editingChecklistItem = null;
+      show(location.hash.slice(1));
+      return;
+    }
+    const editButton = e.target.closest('[data-edit-list-item]');
+    if (editButton) {
+      editingChecklistItem = editButton.dataset.editListItem;
+      show(location.hash.slice(1));
+      return;
+    }
+    if (e.target.closest('[data-cancel-list-edit]')) {
+      editingChecklistItem = null;
+      show(location.hash.slice(1));
+      return;
+    }
+    const deleteItemButton = e.target.closest('[data-delete-list-item]');
+    if (deleteItemButton) {
+      deleteItemButton.disabled = true;
+      try {
+        const { error } = await supabase.from('winterfreeze_checklist_items')
+          .delete().eq('id', deleteItemButton.dataset.deleteListItem);
+        if (error) throw new Error(error.message);
+        editingChecklistItem = null;
+        await refreshChecklists();
+      } catch (error) {
+        checklistError = `Impossible de supprimer l’article : ${error instanceof Error ? error.message : String(error)}`;
+        show(location.hash.slice(1));
+      }
+      return;
+    }
     const chip = e.target.closest('[data-eq]');
     if (chip) { renderEquipement.active = chip.dataset.eq; show('equipement'); return; }
     if (e.target.id === 'reset-epi') {
-      Object.keys(checks).filter((k) => k.startsWith('epi:')).forEach((k) => delete checks[k]);
-      saveChecks();
+      const ids = listItemsFor('epicerie').map((item) => item.id);
+      try {
+        if (ids.length) {
+          const { error } = await supabase.from('winterfreeze_checklist_checks').delete().in('item_id', ids);
+          if (error) throw new Error(error.message);
+        }
+        checklistError = '';
+        await refreshChecklists();
+      } catch (error) {
+        checklistError = `Impossible de réinitialiser la liste d’épicerie : ${error instanceof Error ? error.message : String(error)}`;
+      }
       show('epicerie');
     }
   });
@@ -487,6 +742,49 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     }
   });
   view.addEventListener('submit', async (e) => {
+    const checklistForm = e.target.closest('[data-checklist-add], [data-checklist-update]');
+    if (checklistForm) {
+      e.preventDefault();
+      const fields = new FormData(checklistForm);
+      const listKey = String(fields.get('list_key') || '');
+      const groupName = String(fields.get('group_name') || '');
+      const label = String(fields.get('label') || '').trim();
+      if (!label || !['depart', 'epicerie', 'equipement', 'box'].includes(listKey)) {
+        checklistError = 'Entrez un article valide.';
+        show(location.hash.slice(1));
+        return;
+      }
+      const values = {
+        list_key: listKey,
+        group_name: groupName,
+        label,
+        quantity: String(fields.get('quantity') || '').trim(),
+        detail: String(fields.get('detail') || '').trim(),
+        status: String(fields.get('status') || '').trim(),
+      };
+      try {
+        let result;
+        if (checklistForm.matches('[data-checklist-update]')) {
+          result = await supabase.from('winterfreeze_checklist_items').update(values)
+            .eq('id', checklistForm.dataset.checklistUpdate);
+        } else {
+          const siblings = listItemsFor(listKey, groupName);
+          result = await supabase.from('winterfreeze_checklist_items').insert({
+            ...values,
+            sort_order: siblings.reduce((max, item) => Math.max(max, item.sort_order), -1) + 1,
+            created_by: currentUser.id,
+          });
+        }
+        if (result.error) throw new Error(result.error.message);
+        checklistError = '';
+        editingChecklistItem = null;
+        await refreshChecklists();
+      } catch (error) {
+        checklistError = `Impossible d’enregistrer l’article : ${error instanceof Error ? error.message : String(error)}`;
+        show(location.hash.slice(1));
+      }
+      return;
+    }
     if (e.target.id !== 'expense-form') return;
     e.preventDefault();
     const form = e.target;
