@@ -58,6 +58,19 @@ create table if not exists public.winterfreeze_meals (
   unique (day_number, meal_type)
 );
 
+delete from public.winterfreeze_meals
+where (day_number = 1 and meal_type = 'Déjeuner')
+   or (day_number = 4 and meal_type in ('Dîner', 'Souper'));
+
+alter table public.winterfreeze_meals
+  drop constraint if exists winterfreeze_meals_allowed_day_type_check;
+alter table public.winterfreeze_meals
+  add constraint winterfreeze_meals_allowed_day_type_check
+  check (
+    not (day_number = 1 and meal_type = 'Déjeuner')
+    and not (day_number = 4 and meal_type in ('Dîner', 'Souper'))
+  );
+
 alter table public.winterfreeze_meals enable row level security;
 alter table public.winterfreeze_meals force row level security;
 

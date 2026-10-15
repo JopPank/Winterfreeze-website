@@ -6,6 +6,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const STORE = 'wtf2027:checks';
   const EXPENSE_CATEGORIES = ['Dépôt', 'Activité', 'Boisson', 'Chalet', 'Collation', 'Divers', 'Gaz', 'Repas'];
+  const ARCHIVE_GALLERY_PHOTOS = [
+    '1000321.jpg',
+    '1000336.jpg',
+    'IMG_20120203_143727.jpg',
+    'IMG_20130118_171001.jpg',
+    'IMG_20130118_193930.jpg',
+    'IMG_20190125_094813.jpg',
+    'MVIMG_20200222_135109-EFFECTS.jpg',
+  ];
   const money = (amount) => Number(amount).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD' });
   const supabaseConfig = window.WTF_SUPABASE || {};
   const supabase = supabaseConfig.url && supabaseConfig.anonKey
@@ -58,6 +67,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   const REPAS_TYPES = ['Déjeuner', 'Dîner', 'Souper', 'Collation'];
   const REPAS_MAIN_TYPES = ['Déjeuner', 'Dîner', 'Souper'];
   const REPAS_DAY_NUMBERS = { Jeudi: 1, Vendredi: 2, Samedi: 3, Dimanche: 4 };
+  const repasTypesForDay = (dayNumber) => REPAS_TYPES.filter((type) =>
+    !(dayNumber === 1 && type === 'Déjeuner')
+    && !(dayNumber === 4 && ['Dîner', 'Souper'].includes(type)));
 
   function defaultMealRows() {
     const rows = [];
@@ -657,13 +669,19 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       const snacks = meals.filter((meal) => meal.day_number === day.number && meal.meal_type === 'Collation');
       return `<section class="meal-day">
         <div class="meal-day-heading"><span class="eyebrow">Jour ${day.number}</span><h2>${esc(day.name)}</h2></div>
-        <div class="meal-slots">${REPAS_MAIN_TYPES.map((type) => slotMarkup(day.number, type)).join('')}
+        <div class="meal-slots">${REPAS_MAIN_TYPES.filter((type) => repasTypesForDay(day.number).includes(type)).map((type) => slotMarkup(day.number, type)).join('')}
           ${snacks.map((snack) => slotMarkup(day.number, snack.meal_type)).join('')}
         </div>
       </section>`;
     }).join('');
-    const plannedCount = meals.filter((meal) => meal.menu.trim().toLocaleLowerCase('fr-CA') !== 'menu à déterminer').length;
+    const plannedCount = meals.filter((meal) => repasTypesForDay(meal.day_number).includes(meal.meal_type)
+      && meal.menu.trim().toLocaleLowerCase('fr-CA') !== 'menu à déterminer').length;
     const editingDay = REPAS_DAYS.find((day) => day.number === existingSlot.day_number);
+    const formDay = Number(mealDraft?.day_number || 1);
+    const formMealTypes = repasTypesForDay(formDay);
+    const selectedFormMealType = formMealTypes.includes(mealDraft?.meal_type)
+      ? mealDraft.meal_type
+      : formMealTypes[0];
     return `
     <div class="meals-layout">
       <section class="meals-main">
@@ -684,7 +702,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
           <label>Repas
             ${editingMealSlot
               ? `<select disabled>${REPAS_TYPES.map((type) => `<option${type === existingSlot.meal_type ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><input type="hidden" name="meal_type" value="${esc(existingSlot.meal_type)}">`
-              : `<select name="meal_type" required>${REPAS_TYPES.map((type) => `<option${(mealDraft?.meal_type || REPAS_TYPES[0]) === type ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select>`}
+              : `<select name="meal_type" required>${formMealTypes.map((type) => `<option${selectedFormMealType === type ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select>`}
           </label>
           <label>Responsable<input name="responsible" type="text" maxlength="100" placeholder="Nom ou équipe" value="${esc(mealDraft?.responsible ?? editingMeal?.responsible ?? '')}"></label>
           <label>Qu’y a-t-il au menu?<textarea name="menu" maxlength="180" placeholder="Décrivez le repas…" required>${esc(mealDraft?.menu ?? editingMeal?.menu ?? '')}</textarea></label>
@@ -821,9 +839,17 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
   function renderGallery() {
     const dateFmt = new Intl.DateTimeFormat('fr-CA', { day: 'numeric', month: 'short', year: 'numeric' });
+    const uploadedPhotoCard = (photo) => `
+      <article class="gallery-photo">
+        <img src="${esc(photo.url)}" alt="${esc(photo.caption || 'Photo du séjour')}" loading="lazy">
+        <div class="gallery-photo-details">
+          <span>${photo.caption ? esc(photo.caption) : '<span class="muted">Sans légende</span>'}<small>${esc(dateFmt.format(new Date(photo.created_at)))}</small></span>
+          ${photo.uploaded_by === currentUser.id ? `<button class="delete-button" type="button" data-delete-photo="${esc(photo.id)}" aria-label="Supprimer cette photo">×</button>` : ''}
+        </div>
+      </article>`;
     return `
     <section class="block gallery-block">
-      <div class="heading"><div><span class="eyebrow">Souvenirs partagés</span><h2>Galerie photo</h2></div><span class="count">${galleryPhotos.length} PHOTO${galleryPhotos.length === 1 ? '' : 'S'}</span></div>
+      <div class="heading"><div><span class="eyebrow">Souvenirs partagés</span><h2>Galerie photo</h2></div><span class="count">${galleryPhotos.length + ARCHIVE_GALLERY_PHOTOS.length} PHOTO${galleryPhotos.length + ARCHIVE_GALLERY_PHOTOS.length === 1 ? '' : 'S'}</span></div>
       <p class="lead">Ajoutez vos photos du séjour pour les partager avec les participants connectés. Seul le compte qui a téléversé une photo peut la supprimer.</p>
       ${galleryError ? `<p class="finance-error" role="alert">${esc(galleryError)}</p>` : ''}
       <form id="gallery-upload-form" class="gallery-upload-form">
@@ -832,15 +858,16 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         <small class="form-hint">JPG, PNG, WebP ou GIF · 10 Mo maximum</small>
         <button class="btn" type="submit"${galleryUploading ? ' disabled' : ''}>${galleryUploading ? 'Téléversement…' : 'Ajouter à la galerie'}</button>
       </form>
-      ${galleryLoading ? '<p class="muted">Chargement des photos…</p>' : galleryPhotos.length ? `
-        <div class="gallery-grid">${galleryPhotos.map((photo) => `
-          <article class="gallery-photo">
-            <img src="${esc(photo.url)}" alt="${esc(photo.caption || 'Photo du séjour')}" loading="lazy">
-            <div class="gallery-photo-details">
-              <span>${photo.caption ? esc(photo.caption) : '<span class="muted">Sans légende</span>'}<small>${esc(dateFmt.format(new Date(photo.created_at)))}</small></span>
-              ${photo.uploaded_by === currentUser.id ? `<button class="delete-button" type="button" data-delete-photo="${esc(photo.id)}" aria-label="Supprimer cette photo">×</button>` : ''}
-            </div>
-          </article>`).join('')}</div>` : '<p class="muted">Aucune photo pour l’instant. Ajoutez la première!</p>'}
+      <h3>Archives</h3>
+      <div class="gallery-grid">${ARCHIVE_GALLERY_PHOTOS.map((photo, index) => `
+        <article class="gallery-photo">
+          <img src="${esc(photo)}" alt="Photo d’archive ${index + 1}" loading="lazy">
+          <div class="gallery-photo-details"><span>Photo d’archive<small>${esc(photo)}</small></span></div>
+        </article>`).join('')}</div>
+      <h3>Photos ajoutées par les participants</h3>
+      ${galleryLoading ? '<p class="muted">Chargement des photos…</p>' : galleryPhotos.length
+        ? `<div class="gallery-grid">${galleryPhotos.map(uploadedPhotoCard).join('')}</div>`
+        : '<p class="muted">Aucune photo téléversée pour l’instant. Ajoutez-en une!</p>'}
     </section>`;
   }
 
@@ -894,6 +921,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   window.addEventListener('hashchange', () => show(location.hash.slice(1)));
 
   view.addEventListener('change', async (e) => {
+    const mealDaySelect = e.target.closest('#meal-form select[name="day_number"]');
+    if (mealDaySelect) {
+      const mealTypeSelect = $('#meal-form select[name="meal_type"]', view);
+      const validTypes = repasTypesForDay(Number(mealDaySelect.value));
+      const selectedType = validTypes.includes(mealTypeSelect.value) ? mealTypeSelect.value : validTypes[0];
+      mealTypeSelect.innerHTML = validTypes.map((type) =>
+        `<option${type === selectedType ? ' selected' : ''}>${esc(type)}</option>`).join('');
+      return;
+    }
     const cb = e.target.closest('input[data-check-item]');
     if (!cb) return;
     const itemId = cb.dataset.checkItem;
@@ -1063,7 +1099,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       const responsible = String(fields.get('responsible') || '').trim();
       const notes = String(fields.get('notes') || '').trim();
       if (!REPAS_DAYS.some((day) => day.number === dayNumber)
-        || !REPAS_TYPES.includes(mealType) || !menu || menu.length > 180
+        || !repasTypesForDay(dayNumber).includes(mealType) || !menu || menu.length > 180
         || responsible.length > 100 || notes.length > 1000) {
         mealError = 'Vérifiez le jour, le type de repas et le menu.';
         show('repas');
