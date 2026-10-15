@@ -15,8 +15,8 @@ Site statique pour le voyage Winterfreeze, du 28 au 31 janvier 2027 au chalet Le
 
 ## Configurer les données partagées et les finances privées
 
-1. Créez un **nouveau projet Supabase** réservé à Winterfreeze. Dans les paramètres d’authentification des fournisseurs de connexion par courriel, désactivez **Allow new users to sign up**. Ne réutilisez pas le projet d’un autre site.
-2. Dans l’éditeur SQL du projet, exécutez [`supabase-schema.sql`](./supabase-schema.sql). Cela crée les tables des dépenses, du plan des repas, des listes partagées et des photos, configure le bucket privé de la galerie, active RLS, autorise l’accès aux seuls comptes connectés et active les mises à jour en direct. Réexécutez ce script pour activer ces fonctionnalités sur un projet déjà configuré; il conserve les dépenses, repas, listes et photos déjà enregistrés, et ajoute les horodatages de modification des listes partagées. La clé `service_role` n’est jamais utilisée par le site.
+1. Créez un **nouveau projet Supabase** réservé à Winterfreeze. Dans les paramètres d’authentification des fournisseurs de connexion par courriel, désactivez **Allow new users to sign up** et activez la protection contre les mots de passe compromis (leaked password protection). Ne réutilisez pas le projet d’un autre site.
+2. Dans l’éditeur SQL du projet, exécutez [`supabase-schema.sql`](./supabase-schema.sql). Cela crée les tables des dépenses, du plan des repas, des listes partagées et des photos, configure le bucket privé de la galerie, active RLS, autorise l’accès aux seuls comptes connectés et active les mises à jour en direct. Si `public.rls_auto_enable()` existe, le script lui retire aussi les droits d’exécution des rôles publics et connectés. Réexécutez ce script pour activer ces fonctionnalités sur un projet déjà configuré; il conserve les dépenses, repas, listes et photos déjà enregistrés, et ajoute les horodatages de modification des listes partagées. La clé `service_role` n’est jamais utilisée par le site.
 3. Dans **Project Settings → API**, copiez l’URL du projet et la clé **publishable** (ou l’ancienne clé `anon`) dans `supabase-config.js` :
 
    ```js

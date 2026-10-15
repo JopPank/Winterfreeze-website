@@ -357,6 +357,14 @@ grant execute on function public.seed_winterfreeze_checklists(jsonb, text[]) to 
 
 do $$
 begin
+  if to_regprocedure('public.rls_auto_enable()') is not null then
+    revoke all on function public.rls_auto_enable() from public, anon, authenticated;
+  end if;
+end
+$$;
+
+do $$
+begin
   if not exists (
     select 1 from pg_publication_tables
     where pubname = 'supabase_realtime'
