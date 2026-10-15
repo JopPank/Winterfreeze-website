@@ -157,6 +157,35 @@ tr.total td { font-weight: 700; border-bottom: 0; }
 .submit-expense:hover { background: #0f382a; }
 .finance-error { padding: 10px; border: 1px solid #d99; color: #8a2525; background: #fff3f0; font-size: 12px; }
 .finance-account { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 20px; color: var(--muted); font-size: 10px; }
+.meals-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(270px, .8fr); align-items: start; gap: clamp(24px, 5vw, 66px); padding: 36px 0 20px; }
+.meals-main > .heading { margin-bottom: 10px; }
+.meals-main h2 { margin: 4px 0 0; color: var(--ink); font: 700 36px/1.12 var(--serif); }
+.meal-days { display: grid; gap: 20px; }
+.meal-day { border: 1px solid var(--line); border-top: 4px solid #174635; background: var(--white); }
+.meal-day:nth-child(even) { border-top-color: #9e886e; }
+.meal-day-heading { display: flex; align-items: baseline; gap: 14px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.meal-day-heading h2 { font: 700 23px/1.2 var(--serif); }
+.meal-slots { padding: 0 18px; }
+.meal-slot { position: relative; min-height: 86px; padding: 17px 100px 17px 4px; border-bottom: 1px solid var(--line); }
+.meal-slot:last-child { border-bottom: 0; }
+.meal-slot-heading { display: flex; align-items: center; gap: 10px; }
+.meal-slot-heading .eyebrow { font-size: 9px; }
+.meal-slot > h3 { margin: 4px 0; color: var(--ink); font: 500 19px/1.25 var(--serif); letter-spacing: 0; text-transform: none; }
+.meal-slot > p { margin: 6px 0 0; font-size: 11px; }
+.meal-responsible { margin-top: 3px; }
+.meal-slot > .text-button { position: absolute; top: 30px; right: 4px; padding: 7px 10px; border: 1px solid var(--line); text-decoration: none; }
+.meal-form-card { padding: 22px; border: 1px solid var(--line); background: var(--white); }
+.meal-form-card h3 { margin: 5px 0 14px; color: var(--ink); font: 500 25px/1.2 var(--serif); letter-spacing: 0; text-transform: none; }
+.meal-form { display: grid; gap: 13px; }
+.meal-form label { display: grid; gap: 5px; color: #43524b; font-size: 10px; font-weight: 700; }
+.meal-form input, .meal-form select, .meal-form textarea { width: 100%; min-height: 40px; border: 1px solid var(--line); padding: 9px 10px; color: var(--ink); background: #fffefa; font: 500 12px var(--sans); }
+.meal-form textarea { min-height: 64px; resize: vertical; }
+.meal-form input:focus, .meal-form select:focus, .meal-form textarea:focus { outline: 2px solid #7da694; outline-offset: 1px; }
+.meal-form select:disabled { color: var(--muted); background: #f2f4f3; opacity: 1; }
+.submit-meal { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 46px; margin-top: 2px; border-radius: 0; background: #174635; font-size: 11px; }
+.submit-meal:hover { background: #0f382a; }
+.meal-cancel { justify-self: start; }
+.meal-form-card > .form-hint { display: block; margin-top: 12px; line-height: 1.6; }
 .gallery-upload-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); align-items: end; gap: 12px; margin: 22px 0; padding: 16px; border: 1px solid var(--line); background: #f8fafb; }
 .gallery-upload-form label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .gallery-upload-form input { min-width: 0; width: 100%; min-height: 40px; border: 1px solid var(--line); padding: 8px; color: var(--ink); background: var(--white); font: inherit; }
@@ -176,7 +205,7 @@ tr.total td { font-weight: 700; border-bottom: 0; }
   .block { padding: 20px 16px; }
   .kv, .card-row { grid-template-columns: 1fr; }
   .tabbar { gap: 16px; }
-  .finance-layout { grid-template-columns: 1fr; gap: 22px; padding-top: 24px; }
+  .finance-layout, .meals-layout { grid-template-columns: 1fr; gap: 22px; padding-top: 24px; }
   .expense-summary { grid-template-columns: 1fr; gap: 14px; }
   .expense-total { border-right: 0; border-bottom: 1px solid #ccd7d0; padding: 0 0 13px; }
   .participant-balances { grid-template-columns: 1fr; }

@@ -45,6 +45,54 @@ begin
 end
 $$;
 
+create table if not exists public.winterfreeze_meals (
+  id uuid primary key default gen_random_uuid(),
+  day_number integer not null check (day_number between 1 and 4),
+  meal_type text not null check (meal_type in ('Déjeuner', 'Dîner', 'Souper', 'Collation')),
+  menu text not null check (char_length(trim(menu)) between 1 and 180),
+  responsible text not null default '' check (char_length(trim(responsible)) <= 100),
+  notes text not null default '' check (char_length(trim(notes)) <= 1000),
+  created_by uuid not null references auth.users(id) on delete restrict default auth.uid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (day_number, meal_type)
+);
+
+alter table public.winterfreeze_meals enable row level security;
+alter table public.winterfreeze_meals force row level security;
+
+revoke all on table public.winterfreeze_meals from anon, authenticated;
+grant select, insert, update on table public.winterfreeze_meals to authenticated;
+
+drop policy if exists "Participants can read Winterfreeze meals" on public.winterfreeze_meals;
+create policy "Participants can read Winterfreeze meals"
+  on public.winterfreeze_meals for select to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists "Participants can add Winterfreeze meals" on public.winterfreeze_meals;
+create policy "Participants can add Winterfreeze meals"
+  on public.winterfreeze_meals for insert to authenticated
+  with check (auth.uid() is not null);
+
+drop policy if exists "Participants can edit Winterfreeze meals" on public.winterfreeze_meals;
+create policy "Participants can edit Winterfreeze meals"
+  on public.winterfreeze_meals for update to authenticated
+  using (auth.uid() is not null)
+  with check (auth.uid() is not null);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'winterfreeze_meals'
+  ) then
+    alter publication supabase_realtime add table public.winterfreeze_meals;
+  end if;
+end
+$$;
+
 create table if not exists public.winterfreeze_gallery_photos (
   id uuid primary key default gen_random_uuid(),
   photo_path text not null unique,

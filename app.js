@@ -17,9 +17,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let expenses = [];
   let checklistItems = [];
   let checkedItemIds = new Set();
+  let meals = [];
   let galleryPhotos = [];
   let expenseError = '';
   let checklistError = '';
+  let mealError = '';
   let galleryError = '';
   let siteAuthError = '';
   let currentUser = null;
@@ -27,6 +29,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let authBusy = false;
   let authStateEventReceived = false;
   let expensesLoading = false;
+  let mealsLoading = true;
+  let mealSaving = false;
+  let editingMealSlot = null;
+  let mealDraft = null;
   let galleryLoading = true;
   let galleryUploading = false;
   let checklistLoading = false;
@@ -35,11 +41,55 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let editingChecklistItem = null;
   let financeChannel = null;
   let financeRefreshTimer = null;
+  let mealsChannel = null;
+  let mealsRefreshTimer = null;
+  let mealLoadPromise = null;
   let galleryChannel = null;
   let galleryRefreshTimer = null;
   let checklistChannel = null;
   let checklistRefreshTimer = null;
   let checklistLoadPromise = null;
+  const REPAS_DAYS = [
+    { number: 1, name: 'Jeudi 28 janvier' },
+    { number: 2, name: 'Vendredi 29 janvier' },
+    { number: 3, name: 'Samedi 30 janvier' },
+    { number: 4, name: 'Dimanche 31 janvier' },
+  ];
+  const REPAS_TYPES = ['Déjeuner', 'Dîner', 'Souper', 'Collation'];
+  const REPAS_MAIN_TYPES = ['Déjeuner', 'Dîner', 'Souper'];
+  const REPAS_DAY_NUMBERS = { Jeudi: 1, Vendredi: 2, Samedi: 3, Dimanche: 4 };
+
+  function defaultMealRows() {
+    const rows = [];
+    const add = (day, type, menu, responsible = '', notes = '') => rows.push({
+      day_number: day,
+      meal_type: type,
+      menu,
+      responsible,
+      notes,
+    });
+    for (const [type, entries] of [
+      ['Déjeuner', T.repas.dejeuners],
+      ['Souper', T.repas.soupers],
+    ]) {
+      entries.forEach((entry) => add(
+        REPAS_DAY_NUMBERS[entry.j],
+        type,
+        entry.t,
+        entry.q,
+        entry.d,
+      ));
+    }
+    add(1, 'Dîner', 'Resto Pub O’Max', '', '11 h – 11 h 30; réserver d’avance au pub.');
+    const thursdaySnack = T.repas.collations.find((entry) => entry.j.startsWith('Jeudi'));
+    if (thursdaySnack) add(1, 'Collation', thursdaySnack.t, thursdaySnack.q, thursdaySnack.d);
+    const weekendSnacks = T.repas.collations.find((entry) => entry.j.startsWith('Vendredi'));
+    if (weekendSnacks) {
+      add(2, 'Collation', weekendSnacks.t, weekendSnacks.q, weekendSnacks.d);
+      add(3, 'Collation', weekendSnacks.t, weekendSnacks.q, weekendSnacks.d);
+    }
+    return rows;
+  }
   function defaultChecklistRows() {
     const rows = [];
     T.avantDepart.forEach((item, index) => rows.push({
@@ -244,6 +294,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (currentUser) {
       await refreshExpenses();
       startFinanceSync();
+      await initializeMeals();
       await refreshGallery();
       startGallerySync();
       await initializeChecklists();
@@ -258,6 +309,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       .select('id, description, category, amount, payer, created_by, created_at')
       .order('created_at', { ascending: false });
     expensesLoading = false;
+    meals = [];
+    mealsLoading = true;
+    mealSaving = false;
+    editingMealSlot = null;
+    mealDraft = null;
+    mealError = '';
     if (error) {
       expenseError = `Impossible de charger les dépenses : ${error.message}`;
     } else {
@@ -265,6 +322,75 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       expenseError = '';
     }
     if (location.hash === '#finances') show('finances');
+  }
+  async function refreshMeals() {
+    if (!supabase || !currentUser) return;
+    const requestedBy = currentUser.id;
+    mealsLoading = true;
+    if (location.hash === '#repas') show('repas');
+    try {
+      const { data, error } = await supabase.from('winterfreeze_meals')
+        .select('day_number, meal_type, menu, responsible, notes, updated_at')
+        .order('day_number').order('meal_type');
+      if (currentUser?.id !== requestedBy) return;
+      if (error) throw new Error(error.message);
+      meals = data || [];
+      mealError = '';
+    } catch (error) {
+      if (currentUser?.id !== requestedBy) return;
+      meals = [];
+      mealError = `Impossible de charger le plan des repas : ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      if (currentUser?.id === requestedBy) mealsLoading = false;
+    }
+    if (currentUser?.id === requestedBy && location.hash === '#repas') show('repas');
+  }
+  async function initializeMeals() {
+    if (!supabase || !currentUser || mealLoadPromise) return mealLoadPromise;
+    const requestedBy = currentUser.id;
+    mealLoadPromise = (async () => {
+      mealsLoading = true;
+      mealError = '';
+      if (location.hash === '#repas') show('repas');
+      try {
+        const { error } = await supabase.from('winterfreeze_meals')
+          .upsert(defaultMealRows(), { onConflict: 'day_number,meal_type', ignoreDuplicates: true });
+        if (currentUser?.id !== requestedBy) return;
+        if (error) throw new Error(error.message);
+        await refreshMeals();
+        startMealsSync();
+      } catch (error) {
+        if (currentUser?.id === requestedBy) {
+          meals = [];
+          mealsLoading = false;
+          mealError = `Impossible d’initialiser le plan des repas : ${error instanceof Error ? error.message : String(error)}`;
+          if (location.hash === '#repas') show('repas');
+        }
+      }
+    })().finally(() => {
+      mealLoadPromise = null;
+    });
+    return mealLoadPromise;
+  }
+  function stopMealsSync() {
+    if (mealsRefreshTimer) clearInterval(mealsRefreshTimer);
+    mealsRefreshTimer = null;
+    if (mealsChannel && supabase) void supabase.removeChannel(mealsChannel);
+    mealsChannel = null;
+  }
+  function startMealsSync() {
+    if (!supabase || !currentUser) return;
+    stopMealsSync();
+    mealsChannel = supabase
+      .channel('winterfreeze-meals')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'winterfreeze_meals' }, () => void refreshMeals())
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          mealError = 'La mise à jour en direct est indisponible. Le plan des repas sera actualisé automatiquement.';
+          if (location.hash === '#repas') show('repas');
+        }
+      });
+    mealsRefreshTimer = setInterval(() => void refreshMeals(), 30000);
   }
   async function refreshGallery() {
     if (!supabase || !currentUser) return;
@@ -346,10 +472,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       updateSiteAccess();
       if (currentUser) {
         void refreshExpenses().then(startFinanceSync);
+        void initializeMeals();
         void refreshGallery().then(startGallerySync);
         void initializeChecklists();
       } else {
         stopFinanceSync();
+        stopMealsSync();
         stopGallerySync();
         stopChecklistSync();
         expenses = [];
@@ -511,15 +639,63 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   }
 
   function renderRepas() {
-    const row = (r) => `<div class="card-row"><b>${esc(r.j)}</b><span><strong>${esc(r.t)}</strong>${r.q ? ` <span class="pill">${esc(r.q)}</span>` : ''}${r.d ? `<br><span class="muted">${esc(r.d)}</span>` : ''}</span></div>`;
+    const editingMeal = editingMealSlot && meals.find((meal) =>
+      meal.day_number === editingMealSlot.day_number && meal.meal_type === editingMealSlot.meal_type);
+    const existingSlot = editingMealSlot || { day_number: null, meal_type: null };
+    const slotMarkup = (dayNumber, type) => {
+      const meal = meals.find((item) => item.day_number === dayNumber && item.meal_type === type);
+      return `<article class="meal-slot">
+        <div class="meal-slot-heading"><span class="eyebrow">${esc(type)}</span>
+          <button class="text-button" type="button" data-edit-meal-day="${dayNumber}" data-edit-meal-type="${esc(type)}">${meal ? 'Modifier' : 'Planifier'}</button>
+        </div>
+        <h3>${esc(meal?.menu || 'Menu à déterminer')}</h3>
+        ${meal?.responsible ? `<span class="pill meal-responsible">${esc(meal.responsible)}</span>` : ''}
+        ${meal?.notes ? `<p class="muted">${esc(meal.notes)}</p>` : ''}
+      </article>`;
+    };
+    const dayMarkup = REPAS_DAYS.map((day) => {
+      const snacks = meals.filter((meal) => meal.day_number === day.number && meal.meal_type === 'Collation');
+      return `<section class="meal-day">
+        <div class="meal-day-heading"><span class="eyebrow">Jour ${day.number}</span><h2>${esc(day.name)}</h2></div>
+        <div class="meal-slots">${REPAS_MAIN_TYPES.map((type) => slotMarkup(day.number, type)).join('')}
+          ${snacks.map((snack) => slotMarkup(day.number, snack.meal_type)).join('')}
+        </div>
+      </section>`;
+    }).join('');
+    const plannedCount = meals.filter((meal) => meal.menu.trim().toLocaleLowerCase('fr-CA') !== 'menu à déterminer').length;
+    const editingDay = REPAS_DAYS.find((day) => day.number === existingSlot.day_number);
     return `
-    <section class="block">
-      <span class="eyebrow">Autour de la table</span><h2>Plan des repas</h2>
-      <h3>Déjeuners</h3>${T.repas.dejeuners.map(row).join('')}
-      <h3>Soupers</h3>${T.repas.soupers.map(row).join('')}
-      <h3>Collations</h3>${T.repas.collations.map(row).join('')}
-      <p class="lead">Le dîner du jeudi se prend au Resto Pub O’Max vers 11 h – 11 h 30. Réserver d’avance au pub.</p>
-    </section>
+    <div class="meals-layout">
+      <section class="meals-main">
+        <div class="heading"><div><span class="eyebrow">Autour de la table</span><h2>Plan des repas</h2></div><span class="count">${plannedCount} PLANIFIÉ${plannedCount === 1 ? '' : 'S'}</span></div>
+        <p class="lead">Du jeudi 28 au dimanche 31 janvier 2027. Les repas sont partagés et modifiables par tous les participants.</p>
+        ${mealError ? `<p class="finance-error" role="alert">${esc(mealError)}</p>` : ''}
+        ${mealsLoading ? '<p class="muted">Chargement du plan des repas…</p>' : `<div class="meal-days">${dayMarkup}</div>`}
+      </section>
+      <aside class="meal-form-card">
+        <span class="eyebrow">${editingMeal ? 'Mise à jour partagée' : editingMealSlot ? 'Créneau sélectionné' : 'À table!'}</span>
+        <h3>${editingMeal ? 'Modifier le repas' : editingMealSlot ? 'Planifier ce repas' : 'Ajouter au menu'}</h3>
+        <form id="meal-form" class="meal-form">
+          <label>Jour du voyage
+            ${editingMealSlot
+              ? `<select disabled>${REPAS_DAYS.map((day) => `<option value="${day.number}"${day.number === existingSlot.day_number ? ' selected' : ''}>${esc(`${day.number} — ${day.name}`)}</option>`).join('')}</select><input type="hidden" name="day_number" value="${existingSlot.day_number}">`
+              : `<select name="day_number" required>${REPAS_DAYS.map((day) => `<option value="${day.number}"${Number(mealDraft?.day_number || 1) === day.number ? ' selected' : ''}>${esc(`${day.number} — ${day.name}`)}</option>`).join('')}</select>`}
+          </label>
+          <label>Repas
+            ${editingMealSlot
+              ? `<select disabled>${REPAS_TYPES.map((type) => `<option${type === existingSlot.meal_type ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><input type="hidden" name="meal_type" value="${esc(existingSlot.meal_type)}">`
+              : `<select name="meal_type" required>${REPAS_TYPES.map((type) => `<option${(mealDraft?.meal_type || REPAS_TYPES[0]) === type ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select>`}
+          </label>
+          <label>Responsable<input name="responsible" type="text" maxlength="100" placeholder="Nom ou équipe" value="${esc(mealDraft?.responsible ?? editingMeal?.responsible ?? '')}"></label>
+          <label>Qu’y a-t-il au menu?<textarea name="menu" maxlength="180" placeholder="Décrivez le repas…" required>${esc(mealDraft?.menu ?? editingMeal?.menu ?? '')}</textarea></label>
+          <label>Notes (facultatif)<textarea name="notes" maxlength="1000" placeholder="Détails, accompagnements…">${esc(mealDraft?.notes ?? editingMeal?.notes ?? '')}</textarea></label>
+          <button class="btn submit-meal" type="submit"${mealSaving ? ' disabled' : ''}>${mealSaving ? 'Enregistrement…' : 'Enregistrer le repas'} <span aria-hidden="true">↗</span></button>
+          ${editingMealSlot ? '<button class="text-button meal-cancel" type="button" data-cancel-meal-edit>Annuler la modification</button>' : ''}
+        </form>
+        <p class="form-hint">Un repas par jour et par type. Modifier un créneau met à jour le menu partagé pour tout le monde.</p>
+        ${editingDay ? `<p class="form-hint">Créneau sélectionné : jour ${editingDay.number}, ${esc(existingSlot.meal_type.toLocaleLowerCase('fr-CA'))}.</p>` : ''}
+      </aside>
+    </div>
     <section class="block">
       <span class="eyebrow">Aide-mémoire</span><h2>Recettes</h2>
       <div class="grid">${T.recettes.map((r) => `<div><h3>${esc(r.nom)}</h3><ol class="steps">${r.etapes.map((e) => `<li>${esc(e)}</li>`).join('')}</ol></div>`).join('')}</div>
@@ -561,9 +737,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       <div class="chips" role="group" aria-label="Personne">${names.map((n) => `<button type="button" class="chip" data-eq="${esc(n)}" aria-pressed="${n === active}">${esc(label(n))}</button>`).join('')}</div>
       ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
       ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
+      ${renderChecklistManager('equipement', active)}
       ${progressBar(items, 'eq')}
       ${items.map((item) => checkItem(item, esc(item.label), '', renderChecklistControls(item))).join('') || '<p class="muted">Aucun article dans cette liste.</p>'}
-      ${renderChecklistManager('equipement', active)}
     </section>`;
   }
 
@@ -581,9 +757,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       <p class="lead">État de la boîte à la fin de 2026. Les items « À acheter » sont à ajouter avant de partir.</p>
       ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
       ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
+      ${renderChecklistManager('box', '')}
       ${progressBar(items, 'box')}
       ${items.map((item) => checkItem(item, `${esc(item.label)} ${item.status ? `<span class="pill ${status(item.status)}">${esc(item.status)}</span>` : ''}`, '', renderChecklistControls(item))).join('') || '<p class="muted">Aucun article dans cette liste.</p>'}
-      ${renderChecklistManager('box', '')}
     </section>`;
   }
 
@@ -781,6 +957,24 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       show(location.hash.slice(1));
       return;
     }
+    const mealEditButton = e.target.closest('[data-edit-meal-day]');
+    if (mealEditButton) {
+      editingMealSlot = {
+        day_number: Number(mealEditButton.dataset.editMealDay),
+        meal_type: mealEditButton.dataset.editMealType,
+      };
+      mealDraft = null;
+      mealError = '';
+      show('repas');
+      return;
+    }
+    if (e.target.closest('[data-cancel-meal-edit]')) {
+      editingMealSlot = null;
+      mealDraft = null;
+      mealError = '';
+      show('repas');
+      return;
+    }
     const editButton = e.target.closest('[data-edit-list-item]');
     if (editButton) {
       editingChecklistItem = editButton.dataset.editListItem;
@@ -860,6 +1054,51 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     }
   });
   view.addEventListener('submit', async (e) => {
+    if (e.target.id === 'meal-form') {
+      e.preventDefault();
+      const fields = new FormData(e.target);
+      const dayNumber = Number(fields.get('day_number'));
+      const mealType = String(fields.get('meal_type') || '');
+      const menu = String(fields.get('menu') || '').trim();
+      const responsible = String(fields.get('responsible') || '').trim();
+      const notes = String(fields.get('notes') || '').trim();
+      if (!REPAS_DAYS.some((day) => day.number === dayNumber)
+        || !REPAS_TYPES.includes(mealType) || !menu || menu.length > 180
+        || responsible.length > 100 || notes.length > 1000) {
+        mealError = 'Vérifiez le jour, le type de repas et le menu.';
+        show('repas');
+        return;
+      }
+      if (!currentUser) {
+        mealError = 'Connectez-vous pour modifier le plan des repas.';
+        show('repas');
+        return;
+      }
+      mealSaving = true;
+      mealError = '';
+      mealDraft = { day_number: dayNumber, meal_type: mealType, menu, responsible, notes };
+      show('repas');
+      try {
+        const { error } = await supabase.from('winterfreeze_meals').upsert({
+          day_number: dayNumber,
+          meal_type: mealType,
+          menu,
+          responsible,
+          notes,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'day_number,meal_type' });
+        if (error) throw new Error(error.message);
+        editingMealSlot = null;
+        mealDraft = null;
+        await refreshMeals();
+      } catch (error) {
+        mealError = `Impossible d’enregistrer le repas : ${error instanceof Error ? error.message : String(error)}`;
+      } finally {
+        mealSaving = false;
+        if (location.hash === '#repas') show('repas');
+      }
+      return;
+    }
     if (e.target.id === 'gallery-upload-form') {
       e.preventDefault();
       const form = e.target;
