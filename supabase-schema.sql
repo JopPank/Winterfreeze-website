@@ -200,8 +200,29 @@ create table if not exists public.winterfreeze_checklist_items (
   sort_order integer not null default 0,
   seed_key text unique,
   created_by uuid not null references auth.users(id) on delete restrict default auth.uid(),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
+
+alter table public.winterfreeze_checklist_items
+  add column if not exists updated_at timestamptz not null default now();
+
+create or replace function public.set_winterfreeze_checklist_item_updated_at()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists winterfreeze_checklist_items_set_updated_at
+  on public.winterfreeze_checklist_items;
+create trigger winterfreeze_checklist_items_set_updated_at
+  before update on public.winterfreeze_checklist_items
+  for each row execute function public.set_winterfreeze_checklist_item_updated_at();
 
 create index if not exists winterfreeze_checklist_items_order_idx
   on public.winterfreeze_checklist_items (list_key, group_name, sort_order, created_at);

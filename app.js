@@ -25,6 +25,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   try { legacyChecks = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { legacyChecks = {}; }
   let expenses = [];
   let checklistItems = [];
+  let checklistChecks = [];
   let checkedItemIds = new Set();
   let meals = [];
   let galleryPhotos = [];
@@ -131,18 +132,20 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     try {
       const [{ data: items, error: itemsError }, { data: checksData, error: checksError }] = await Promise.all([
         supabase.from('winterfreeze_checklist_items')
-          .select('id, list_key, group_name, label, quantity, detail, status, sort_order, seed_key, created_at')
+          .select('id, list_key, group_name, label, quantity, detail, status, sort_order, seed_key, created_at, updated_at')
           .order('list_key').order('group_name').order('sort_order').order('created_at'),
-        supabase.from('winterfreeze_checklist_checks').select('item_id, checked'),
+        supabase.from('winterfreeze_checklist_checks').select('item_id, checked, updated_at'),
       ]);
       if (currentUser?.id !== requestedBy) return;
       if (itemsError || checksError) {
         checklistError = `Impossible de charger les listes partagées : ${(itemsError || checksError).message}`;
         checklistItems = [];
+        checklistChecks = [];
         checkedItemIds = new Set();
         checklistLoaded = false;
       } else {
         checklistItems = items || [];
+        checklistChecks = checksData || [];
         checkedItemIds = new Set((checksData || []).filter((row) => row.checked).map((row) => row.item_id));
         checklistError = '';
         checklistLoaded = true;
@@ -151,6 +154,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       if (currentUser?.id !== requestedBy) return;
       checklistError = `Impossible de charger les listes partagées : ${error instanceof Error ? error.message : String(error)}`;
       checklistItems = [];
+      checklistChecks = [];
       checkedItemIds = new Set();
       checklistLoaded = false;
     } finally {
@@ -499,6 +503,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         galleryUploading = false;
         galleryError = '';
         checklistItems = [];
+        checklistChecks = [];
         checkedItemIds = new Set();
         checklistLoading = false;
         checklistLoaded = false;
@@ -525,6 +530,34 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
   const listItemsFor = (listKey, groupName) => checklistItems.filter((item) =>
     item.list_key === listKey && (groupName === undefined || item.group_name === groupName));
+
+  const sharedUpdateLabel = (timestamp) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    if (!Number.isFinite(date.getTime())) return '';
+    const formatted = new Intl.DateTimeFormat('fr-CA', {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    }).format(date);
+    return `<time class="shared-update" datetime="${esc(date.toISOString())}">Mis à jour le ${esc(formatted)}</time>`;
+  };
+
+  function latestTimestamp(timestamps) {
+    const latest = timestamps.reduce((max, timestamp) => {
+      const time = Date.parse(timestamp || '');
+      return Number.isFinite(time) ? Math.max(max, time) : max;
+    }, 0);
+    return latest ? new Date(latest).toISOString() : '';
+  }
+
+  function checklistActivity(listKey, groupName) {
+    const items = listItemsFor(listKey, groupName);
+    const itemIds = new Set(items.map((item) => item.id));
+    const timestamps = [
+      ...items.map((item) => item.updated_at || item.created_at),
+      ...checklistChecks.filter((check) => itemIds.has(check.item_id)).map((check) => check.updated_at),
+    ].filter(Boolean);
+    return sharedUpdateLabel(latestTimestamp(timestamps));
+  }
 
   function checklistGroupOptions(listKey) {
     if (listKey === 'epicerie') return T.epicerie.map((section) => section.magasin);
@@ -589,6 +622,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
   function renderSurvol() {
     const c = T.chalet;
+    const departureActivity = checklistActivity('depart');
     return `
     <div class="grid">
       <section class="block">
@@ -640,6 +674,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
     <section class="block">
       <span class="eyebrow">À faire avant le départ du chalet</span><h2>Ménage du dimanche</h2>
+      ${departureActivity}
       ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
       ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
       ${(() => {
@@ -663,6 +698,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         <h3>${esc(meal?.menu || 'Menu à déterminer')}</h3>
         ${meal?.responsible ? `<span class="pill meal-responsible">${esc(meal.responsible)}</span>` : ''}
         ${meal?.notes ? `<p class="muted">${esc(meal.notes)}</p>` : ''}
+        ${meal?.updated_at ? sharedUpdateLabel(meal.updated_at) : ''}
       </article>`;
     };
     const dayMarkup = REPAS_DAYS.map((day) => {
@@ -685,7 +721,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     return `
     <div class="meals-layout">
       <section class="meals-main">
-        <div class="heading"><div><span class="eyebrow">Autour de la table</span><h2>Plan des repas</h2></div><span class="count">${plannedCount} PLANIFIÉ${plannedCount === 1 ? '' : 'S'}</span></div>
+        <div class="heading"><div><span class="eyebrow">Autour de la table</span><h2>Plan des repas</h2>${sharedUpdateLabel(latestTimestamp(meals.map((meal) => meal.updated_at)))}</div><span class="count">${plannedCount} PLANIFIÉ${plannedCount === 1 ? '' : 'S'}</span></div>
         <p class="lead">Du jeudi 28 au dimanche 31 janvier 2027. Les repas sont partagés et modifiables par tous les participants.</p>
         ${mealError ? `<p class="finance-error" role="alert">${esc(mealError)}</p>` : ''}
         ${mealsLoading ? '<p class="muted">Chargement du plan des repas…</p>' : `<div class="meal-days">${dayMarkup}</div>`}
@@ -722,6 +758,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
   function renderEpicerie() {
     const items = listItemsFor('epicerie');
+    const activity = checklistActivity('epicerie');
     const sections = T.epicerie.map((section) => {
       const groupItems = listItemsFor('epicerie', section.magasin);
       const html = groupItems.map((item) => checkItem(
@@ -735,6 +772,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     return `
     <section class="block">
       <div class="heading"><div><span class="eyebrow">Magasiner</span><h2>Liste d’épicerie</h2></div></div>
+      ${activity}
       ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
       ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
       ${progressBar(items, 'epi')}
@@ -748,11 +786,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     const names = Object.keys(window.EQUIP);
     const active = renderEquipement.active && names.includes(renderEquipement.active) ? renderEquipement.active : names[0];
     const items = listItemsFor('equipement', active);
+    const activity = checklistActivity('equipement', active);
     const label = (n) => (n === 'Tous' ? 'Pour tous' : n);
     return `
     <section class="block">
       <span class="eyebrow">Apportons l’essentiel</span><h2>Équipement</h2>
       <div class="chips" role="group" aria-label="Personne">${names.map((n) => `<button type="button" class="chip" data-eq="${esc(n)}" aria-pressed="${n === active}">${esc(label(n))}</button>`).join('')}</div>
+      ${activity}
       ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
       ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
       ${renderChecklistManager('equipement', active)}
@@ -763,6 +803,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
   function renderBox() {
     const items = listItemsFor('box');
+    const activity = checklistActivity('box');
     const status = (s) => {
       const u = s.toUpperCase();
       if (u.startsWith('BUY') || u.includes('NO MORE') || u.includes('NO WAND')) return 'hot';
@@ -773,6 +814,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     <section class="block">
       <span class="eyebrow">Inventaire après WTF 2026</span><h2>La WTF Box</h2>
       <p class="lead">État de la boîte à la fin de 2026. Les items « À acheter » sont à ajouter avant de partir.</p>
+      ${activity}
       ${checklistLoading && !checklistLoaded ? '<p class="muted">Chargement de la liste partagée…</p>' : ''}
       ${checklistError ? `<p class="finance-error" role="alert">${esc(checklistError)}</p>` : ''}
       ${renderChecklistManager('box', '')}
@@ -912,6 +954,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     const tab = tabs.find((t) => t.id === id) || tabs[0];
     view.innerHTML = tab.render();
     tabbar.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.id === tab.id)));
+    const activeTab = Array.from(tabbar.querySelectorAll('.tab')).find((button) => button.dataset.id === tab.id);
+    if (activeTab) {
+      const navRect = tabbar.getBoundingClientRect();
+      const tabRect = activeTab.getBoundingClientRect();
+      if (tabRect.left < navRect.left || tabRect.right > navRect.right) {
+        const offset = tabRect.left < navRect.left ? tabRect.left - navRect.left : tabRect.right - navRect.right;
+        tabbar.scrollBy({ left: offset, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      }
+    }
     if (location.hash !== '#' + tab.id) history.replaceState(null, '', '#' + tab.id);
   }
   tabbar.addEventListener('click', (e) => {
@@ -1043,7 +1094,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       const ids = listItemsFor('epicerie').map((item) => item.id);
       try {
         if (ids.length) {
-          const { error } = await supabase.from('winterfreeze_checklist_checks').delete().in('item_id', ids);
+          const updatedAt = new Date().toISOString();
+          const { error } = await supabase.from('winterfreeze_checklist_checks').upsert(
+            ids.map((itemId) => ({ item_id: itemId, checked: false, updated_by: currentUser.id, updated_at: updatedAt })),
+            { onConflict: 'item_id' },
+          );
           if (error) throw new Error(error.message);
         }
         checklistError = '';
@@ -1214,7 +1269,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       try {
         let result;
         if (checklistForm.matches('[data-checklist-update]')) {
-          result = await supabase.from('winterfreeze_checklist_items').update(values)
+          result = await supabase.from('winterfreeze_checklist_items').update({
+            ...values,
+            updated_at: new Date().toISOString(),
+          })
             .eq('id', checklistForm.dataset.checklistUpdate);
         } else {
           const siblings = listItemsFor(listKey, groupName);
