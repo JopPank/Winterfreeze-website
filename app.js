@@ -1271,8 +1271,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (now >= end) { cd.innerHTML = '<div class="hero-msg">À l’an prochain!</div>'; return; }
     if (now >= start) { cd.innerHTML = '<div class="hero-msg">C’est parti!</div>'; return; }
     const s = Math.floor((start - now) / 1000);
-    const parts = [[Math.floor(s / 86400), 'jours'], [Math.floor((s % 86400) / 3600), 'heures']];
-    cd.innerHTML = parts.map(([n, l]) => `<div><b>${n}</b><span>${l}</span></div>`).join('');
+    const days = Math.floor(s / 86400);
+    cd.innerHTML = `<div><b>${days}</b><span>${days === 1 ? 'jour' : 'jours'}</span></div>`;
   }
   tick();
   setInterval(tick, 30000);
