@@ -45,6 +45,89 @@ begin
 end
 $$;
 
+create table if not exists public.winterfreeze_gallery_photos (
+  id uuid primary key default gen_random_uuid(),
+  photo_path text not null unique,
+  caption text not null default '' check (char_length(trim(caption)) <= 180),
+  uploaded_by uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  check (photo_path like uploaded_by::text || '/%')
+);
+
+create index if not exists winterfreeze_gallery_photos_created_at_idx
+  on public.winterfreeze_gallery_photos (created_at desc);
+
+alter table public.winterfreeze_gallery_photos enable row level security;
+alter table public.winterfreeze_gallery_photos force row level security;
+
+revoke all on table public.winterfreeze_gallery_photos from anon, authenticated;
+grant select, insert, delete on table public.winterfreeze_gallery_photos to authenticated;
+
+drop policy if exists "Participants can read Winterfreeze gallery photos" on public.winterfreeze_gallery_photos;
+create policy "Participants can read Winterfreeze gallery photos"
+  on public.winterfreeze_gallery_photos for select to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists "Participants can add their Winterfreeze gallery photos" on public.winterfreeze_gallery_photos;
+create policy "Participants can add their Winterfreeze gallery photos"
+  on public.winterfreeze_gallery_photos for insert to authenticated
+  with check (
+    auth.uid() = uploaded_by
+    and photo_path like auth.uid()::text || '/%'
+  );
+
+drop policy if exists "Participants can delete their Winterfreeze gallery photos" on public.winterfreeze_gallery_photos;
+create policy "Participants can delete their Winterfreeze gallery photos"
+  on public.winterfreeze_gallery_photos for delete to authenticated
+  using (auth.uid() = uploaded_by);
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'winterfreeze-gallery',
+  'winterfreeze-gallery',
+  false,
+  10485760,
+  array['image/jpeg', 'image/png', 'image/webp', 'image/gif']::text[]
+)
+on conflict (id) do update
+set public = false,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Participants can view Winterfreeze gallery files" on storage.objects;
+create policy "Participants can view Winterfreeze gallery files"
+  on storage.objects for select to authenticated
+  using (bucket_id = 'winterfreeze-gallery' and auth.uid() is not null);
+
+drop policy if exists "Participants can upload their Winterfreeze gallery files" on storage.objects;
+create policy "Participants can upload their Winterfreeze gallery files"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'winterfreeze-gallery'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "Participants can delete their Winterfreeze gallery files" on storage.objects;
+create policy "Participants can delete their Winterfreeze gallery files"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'winterfreeze-gallery'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'winterfreeze_gallery_photos'
+  ) then
+    alter publication supabase_realtime add table public.winterfreeze_gallery_photos;
+  end if;
+end
+$$;
+
 create table if not exists public.winterfreeze_checklist_items (
   id uuid primary key default gen_random_uuid(),
   list_key text not null check (list_key in ('depart', 'epicerie', 'equipement', 'box')),

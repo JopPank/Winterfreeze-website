@@ -157,6 +157,16 @@ tr.total td { font-weight: 700; border-bottom: 0; }
 .submit-expense:hover { background: #0f382a; }
 .finance-error { padding: 10px; border: 1px solid #d99; color: #8a2525; background: #fff3f0; font-size: 12px; }
 .finance-account { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 20px; color: var(--muted); font-size: 10px; }
+.gallery-upload-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); align-items: end; gap: 12px; margin: 22px 0; padding: 16px; border: 1px solid var(--line); background: #f8fafb; }
+.gallery-upload-form label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.gallery-upload-form input { min-width: 0; width: 100%; min-height: 40px; border: 1px solid var(--line); padding: 8px; color: var(--ink); background: var(--white); font: inherit; }
+.gallery-upload-form .form-hint { grid-column: 1 / -1; }
+.gallery-upload-form .btn { justify-self: start; }
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 22px; }
+.gallery-photo { min-width: 0; overflow: hidden; border: 1px solid var(--line); background: var(--white); }
+.gallery-photo > img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--ice); }
+.gallery-photo-details { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 10px 12px; font-size: 12px; overflow-wrap: anywhere; }
+.gallery-photo-details small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
 .text-button { border: 0; padding: 4px 0; color: #1e6a96; background: transparent; font: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
 .footer { margin-top: 36px; color: var(--muted); font-size: 12px; text-align: center; }
 

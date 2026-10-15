@@ -17,20 +17,26 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let expenses = [];
   let checklistItems = [];
   let checkedItemIds = new Set();
+  let galleryPhotos = [];
   let expenseError = '';
   let checklistError = '';
+  let galleryError = '';
   let siteAuthError = '';
   let currentUser = null;
   let authChecked = false;
   let authBusy = false;
   let authStateEventReceived = false;
   let expensesLoading = false;
+  let galleryLoading = true;
+  let galleryUploading = false;
   let checklistLoading = false;
   let checklistLoaded = false;
   let checklistEditMode = false;
   let editingChecklistItem = null;
   let financeChannel = null;
   let financeRefreshTimer = null;
+  let galleryChannel = null;
+  let galleryRefreshTimer = null;
   let checklistChannel = null;
   let checklistRefreshTimer = null;
   let checklistLoadPromise = null;
@@ -238,6 +244,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (currentUser) {
       await refreshExpenses();
       startFinanceSync();
+      await refreshGallery();
+      startGallerySync();
       await initializeChecklists();
     }
   }
@@ -257,6 +265,57 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       expenseError = '';
     }
     if (location.hash === '#finances') show('finances');
+  }
+  async function refreshGallery() {
+    if (!supabase || !currentUser) return;
+    const requestedBy = currentUser.id;
+    galleryLoading = true;
+    if (location.hash === '#galerie') show('galerie');
+    try {
+      const { data, error } = await supabase
+        .from('winterfreeze_gallery_photos')
+        .select('id, photo_path, caption, uploaded_by, created_at')
+        .order('created_at', { ascending: false });
+      if (currentUser?.id !== requestedBy) return;
+      if (error) throw new Error(error.message);
+      const photos = await Promise.all((data || []).map(async (photo) => {
+        const { data: signedPhoto, error: signedPhotoError } = await supabase.storage
+          .from('winterfreeze-gallery')
+          .createSignedUrl(photo.photo_path, 3600);
+        if (signedPhotoError) throw new Error(signedPhotoError.message);
+        return { ...photo, url: signedPhoto.signedUrl };
+      }));
+      if (currentUser?.id !== requestedBy) return;
+      galleryPhotos = photos;
+      galleryError = '';
+    } catch (error) {
+      if (currentUser?.id !== requestedBy) return;
+      galleryPhotos = [];
+      galleryError = `Impossible de charger la galerie : ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      if (currentUser?.id === requestedBy) galleryLoading = false;
+    }
+    if (currentUser?.id === requestedBy && location.hash === '#galerie') show('galerie');
+  }
+  function stopGallerySync() {
+    if (galleryRefreshTimer) clearInterval(galleryRefreshTimer);
+    galleryRefreshTimer = null;
+    if (galleryChannel && supabase) void supabase.removeChannel(galleryChannel);
+    galleryChannel = null;
+  }
+  function startGallerySync() {
+    if (!supabase || !currentUser) return;
+    stopGallerySync();
+    galleryChannel = supabase
+      .channel('winterfreeze-gallery')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'winterfreeze_gallery_photos' }, () => void refreshGallery())
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          galleryError = 'La mise à jour en direct est indisponible. La galerie sera actualisée automatiquement.';
+          if (location.hash === '#galerie') show('galerie');
+        }
+      });
+    galleryRefreshTimer = setInterval(() => void refreshGallery(), 30000);
   }
   function stopFinanceSync() {
     if (financeRefreshTimer) clearInterval(financeRefreshTimer);
@@ -287,12 +346,18 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       updateSiteAccess();
       if (currentUser) {
         void refreshExpenses().then(startFinanceSync);
+        void refreshGallery().then(startGallerySync);
         void initializeChecklists();
       } else {
         stopFinanceSync();
+        stopGallerySync();
         stopChecklistSync();
         expenses = [];
         expensesLoading = false;
+        galleryPhotos = [];
+        galleryLoading = true;
+        galleryUploading = false;
+        galleryError = '';
         checklistItems = [];
         checkedItemIds = new Set();
         checklistLoading = false;
@@ -377,6 +442,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     { id: 'equipement', label: 'Équipement', render: renderEquipement },
     { id: 'box', label: 'WTF Box', render: renderBox },
     { id: 'finances', label: 'Finances', render: renderFinances },
+    { id: 'galerie', label: 'Galerie', render: renderGallery },
     { id: 'dnd', label: 'D&D', render: renderDnd },
     { id: 'bilan', label: 'Notes 2026', render: renderBilan },
   ];
@@ -577,6 +643,31 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     </div>`;
   }
 
+  function renderGallery() {
+    const dateFmt = new Intl.DateTimeFormat('fr-CA', { day: 'numeric', month: 'short', year: 'numeric' });
+    return `
+    <section class="block gallery-block">
+      <div class="heading"><div><span class="eyebrow">Souvenirs partagés</span><h2>Galerie photo</h2></div><span class="count">${galleryPhotos.length} PHOTO${galleryPhotos.length === 1 ? '' : 'S'}</span></div>
+      <p class="lead">Ajoutez vos photos du séjour pour les partager avec les participants connectés. Seul le compte qui a téléversé une photo peut la supprimer.</p>
+      ${galleryError ? `<p class="finance-error" role="alert">${esc(galleryError)}</p>` : ''}
+      <form id="gallery-upload-form" class="gallery-upload-form">
+        <label>Choisir une photo<input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required${galleryUploading ? ' disabled' : ''}></label>
+        <label>Légende (facultative)<input name="caption" type="text" maxlength="180" placeholder="Un bon souvenir…"${galleryUploading ? ' disabled' : ''}></label>
+        <small class="form-hint">JPG, PNG, WebP ou GIF · 10 Mo maximum</small>
+        <button class="btn" type="submit"${galleryUploading ? ' disabled' : ''}>${galleryUploading ? 'Téléversement…' : 'Ajouter à la galerie'}</button>
+      </form>
+      ${galleryLoading ? '<p class="muted">Chargement des photos…</p>' : galleryPhotos.length ? `
+        <div class="gallery-grid">${galleryPhotos.map((photo) => `
+          <article class="gallery-photo">
+            <img src="${esc(photo.url)}" alt="${esc(photo.caption || 'Photo du séjour')}" loading="lazy">
+            <div class="gallery-photo-details">
+              <span>${photo.caption ? esc(photo.caption) : '<span class="muted">Sans légende</span>'}<small>${esc(dateFmt.format(new Date(photo.created_at)))}</small></span>
+              ${photo.uploaded_by === currentUser.id ? `<button class="delete-button" type="button" data-delete-photo="${esc(photo.id)}" aria-label="Supprimer cette photo">×</button>` : ''}
+            </div>
+          </article>`).join('')}</div>` : '<p class="muted">Aucune photo pour l’instant. Ajoutez la première!</p>'}
+    </section>`;
+  }
+
   function renderDnd() {
     const d = T.dnd;
     return `
@@ -649,6 +740,33 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     }
   });
   view.addEventListener('click', async (e) => {
+    const deletePhotoButton = e.target.closest('[data-delete-photo]');
+    if (deletePhotoButton) {
+      deletePhotoButton.disabled = true;
+      const photo = galleryPhotos.find((item) => item.id === deletePhotoButton.dataset.deletePhoto);
+      if (!photo || photo.uploaded_by !== currentUser?.id) return;
+      try {
+        const { error } = await supabase.from('winterfreeze_gallery_photos')
+          .delete().eq('id', photo.id);
+        if (error) throw new Error(error.message);
+        galleryPhotos = galleryPhotos.filter((item) => item.id !== photo.id);
+        const { error: storageError } = await supabase.storage
+          .from('winterfreeze-gallery')
+          .remove([photo.photo_path]);
+        if (storageError) {
+          galleryError = `La photo a été retirée de la galerie, mais son fichier n’a pas pu être supprimé : ${storageError.message}`;
+        } else {
+          galleryError = '';
+        }
+        show('galerie');
+      } catch (error) {
+        const message = `Impossible de supprimer cette photo : ${error instanceof Error ? error.message : String(error)}`;
+        await refreshGallery();
+        galleryError = message;
+        show('galerie');
+      }
+      return;
+    }
     const deleteButton = e.target.closest('[data-delete-expense]');
     if (deleteButton) {
       deleteButton.disabled = true;
@@ -742,6 +860,62 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     }
   });
   view.addEventListener('submit', async (e) => {
+    if (e.target.id === 'gallery-upload-form') {
+      e.preventDefault();
+      const form = e.target;
+      const fields = new FormData(form);
+      const photo = fields.get('photo');
+      const caption = String(fields.get('caption') || '').trim();
+      const photoExtensions = {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'image/gif': 'gif',
+      };
+      if (!(photo instanceof File) || !photo.size || !photoExtensions[photo.type] || photo.size > 10 * 1024 * 1024) {
+        galleryError = 'Choisissez une image JPG, PNG, WebP ou GIF de 10 Mo maximum.';
+        show('galerie');
+        return;
+      }
+      if (!currentUser) {
+        galleryError = 'Connectez-vous pour ajouter une photo.';
+        show('galerie');
+        return;
+      }
+      galleryUploading = true;
+      galleryError = '';
+      show('galerie');
+      const uploadingUser = currentUser;
+      const photoPath = `${uploadingUser.id}/${crypto.randomUUID()}.${photoExtensions[photo.type]}`;
+      let uploadedPath = '';
+      try {
+        const { data: uploadedPhoto, error: uploadError } = await supabase.storage
+          .from('winterfreeze-gallery')
+          .upload(photoPath, photo, { contentType: photo.type, cacheControl: '3600', upsert: false });
+        if (uploadError) throw new Error(uploadError.message);
+        uploadedPath = uploadedPhoto.path;
+        const { error } = await supabase.from('winterfreeze_gallery_photos').insert({
+          photo_path: uploadedPath,
+          caption,
+          uploaded_by: uploadingUser.id,
+        });
+        if (error) {
+          const { error: cleanupError } = await supabase.storage
+            .from('winterfreeze-gallery')
+            .remove([uploadedPath]);
+          throw new Error(cleanupError
+            ? `${error.message}. Le fichier temporaire n’a pas pu être supprimé : ${cleanupError.message}`
+            : error.message);
+        }
+        await refreshGallery();
+      } catch (error) {
+        galleryError = `Impossible d’ajouter la photo : ${error instanceof Error ? error.message : String(error)}`;
+      } finally {
+        galleryUploading = false;
+        if (location.hash === '#galerie') show('galerie');
+      }
+      return;
+    }
     const checklistForm = e.target.closest('[data-checklist-add], [data-checklist-update]');
     if (checklistForm) {
       e.preventDefault();
