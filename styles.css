@@ -29,7 +29,7 @@ body { margin: 0; color: var(--ink); background: radial-gradient(ellipse at 12% 
 .site-notice { margin: 8px 0; }
 .eyebrow { display: block; color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 
-.hero { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(190px, 270px) minmax(0, 1fr) auto; align-items: center; gap: clamp(20px, 3vw, 42px); overflow: hidden; margin-top: 26px; padding: 18px clamp(20px, 3vw, 36px); color: #fff; border: 1px solid #856342; border-radius: 8px; background: radial-gradient(ellipse at 72% 45%, #284b5c 0, transparent 47%), linear-gradient(125deg, #101d23, #182d38 58%, #2e2923); box-shadow: 0 12px 30px #17262f1a; }
+.hero { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(190px, 210px) minmax(0, 1fr) auto; align-items: center; gap: clamp(20px, 3vw, 42px); overflow: hidden; margin-top: 26px; padding: 12px clamp(20px, 3vw, 36px); color: #fff; border: 1px solid #856342; border-radius: 8px; background: radial-gradient(ellipse at 72% 45%, #284b5c 0, transparent 47%), linear-gradient(125deg, #101d23, #182d38 58%, #2e2923); box-shadow: 0 12px 30px #17262f1a; }
 .hero::before, .hero::after { position: absolute; z-index: 0; inset: 0; content: ''; background-image: radial-gradient(#ffffffcc 1.5px, transparent 2px), radial-gradient(#ffffff88 1px, transparent 1.5px); background-size: 90px 110px, 47px 61px; background-position: 0 0, 20px 30px; opacity: .3; animation: snow 18s linear infinite; pointer-events: none; }
 .hero::after { background-size: 130px 150px, 73px 83px; animation-duration: 28s; opacity: .2; }
 @keyframes snow { to { background-position: -30px 110px, -10px 91px; } }
