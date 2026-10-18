@@ -756,6 +756,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   }
 
   const tabs = [
+    { id: 'planification', label: 'Planification 2027', render: renderPlanning },
     { id: 'survol', label: 'Survol', render: renderSurvol },
     { id: 'repas', label: 'Repas', render: renderRepas },
     { id: 'epicerie', label: 'Épicerie', render: renderEpicerie },
@@ -764,7 +765,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     { id: 'finances', label: 'Finances', render: renderFinances },
     { id: 'galerie', label: 'Galerie', render: renderGallery },
     { id: 'dnd', label: 'D&D', render: renderDnd },
-    { id: 'planification', label: 'Planification 2027', render: renderPlanning },
     { id: 'bilan', label: 'Notes 2026', render: renderBilan },
   ];
 
