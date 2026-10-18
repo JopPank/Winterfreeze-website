@@ -12,13 +12,13 @@ window.TRIP = {
   participants: ['Pat', 'Jop', 'Luc', 'Steve', 'Mike', 'Simon', 'Mathieu', 'Pierre'],
   horaire: [
     { jour: 'Jeudi 28 janvier', items: [
-      'Arrivée vers 13 h (on peut arriver à partir de 13 h)',
       'Dîner à 11 h – 11 h 30 au Resto Pub O’Max avant de monter au chalet',
-      'Soir : D&D (préparation d’une heure dans le salon avant) et pub night avec le chicken dip',
+      'Arrivée vers 13 h',
+      'Soir : D&D (préparation d’une heure dans le salon avant)',
       'Souper : lasagne en forme de maison (Mike), pains à l’ail beurrés (Luc)',
     ]},
     { jour: 'Vendredi 29 janvier', items: [
-      'Déjeuner classique de Pat (bacon, patates)',
+      'Déjeuner classique (bacon, patates)',
       'D&D jusqu’au souper',
       'Souper : burgers (Jop)',
     ]},

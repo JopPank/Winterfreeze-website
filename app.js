@@ -38,6 +38,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let checklistChecks = [];
   let checkedItemIds = new Set();
   let meals = [];
+  let mealDishChecks = [];
   let galleryPhotos = [];
   let expenseError = '';
   let checklistError = '';
@@ -373,16 +374,28 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (location.hash === '#repas') show('repas');
     try {
       const { data, error } = await supabase.from('winterfreeze_meals')
-        .select('day_number, meal_type, menu, responsible, notes, updated_at')
+        .select('id, day_number, meal_type, menu, responsible, notes, updated_at')
         .order('day_number').order('meal_type');
       if (currentUser?.id !== requestedBy) return;
       if (error) throw new Error(error.message);
       meals = data || [];
+      if (meals.length) {
+        const { data: checks, error: checksError } = await supabase
+          .from('winterfreeze_meal_dishwashing_checks')
+          .select('meal_id, participant, checked')
+          .in('meal_id', meals.map((meal) => meal.id));
+        if (currentUser?.id !== requestedBy) return;
+        if (checksError) throw new Error(checksError.message);
+        mealDishChecks = checks || [];
+      } else {
+        mealDishChecks = [];
+      }
       mealError = '';
     } catch (error) {
       if (currentUser?.id !== requestedBy) return;
       meals = [];
-      mealError = `Impossible de charger le plan des repas : ${error instanceof Error ? error.message : String(error)}`;
+      mealDishChecks = [];
+      mealError = `Impossible de charger le plan des repas et le suivi de la vaisselle : ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       if (currentUser?.id === requestedBy) mealsLoading = false;
     }
@@ -427,6 +440,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     mealsChannel = supabase
       .channel('winterfreeze-meals')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'winterfreeze_meals' }, () => void refreshMeals())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'winterfreeze_meal_dishwashing_checks' }, () => void refreshMeals())
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           mealError = 'La mise à jour en direct est indisponible. Le plan des repas sera actualisé automatiquement.';
@@ -528,6 +542,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         galleryError = '';
         checklistItems = [];
         checklistChecks = [];
+        meals = [];
+        mealDishChecks = [];
         checkedItemIds = new Set();
         checklistLoading = false;
         checklistLoaded = false;
@@ -647,23 +663,33 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   function renderSurvol() {
     const c = T.chalet;
     const departureActivity = checklistActivity('depart');
+    const scheduleItemMarkup = (item) => {
+      const restaurantName = 'Resto Pub O’Max';
+      if (!item.includes(restaurantName)) return esc(item);
+      const [before, after] = item.split(restaurantName);
+      return `${esc(before)}<a href="https://restobaromax.ca/" target="_blank" rel="noopener">${restaurantName}</a>${esc(after)}<br><address class="schedule-address">845, chemin de Masson<br>Gatineau, Québec<br>J8M 1B2</address>`;
+    };
     return `
     <div class="grid">
-      <section class="block">
+      <section class="block chalet-base">
         <span class="eyebrow">Notre base</span><h2>${esc(c.nom)}</h2>
-        <dl class="kv">
-          <dt>Adresse</dt><dd>${esc(c.adresse)} · <a href="${esc(c.carte)}" target="_blank" rel="noopener">Carte</a></dd>
-          <dt>Séjour</dt><dd>28 au 31 janvier 2027 · ${c.nuits} nuits</dd>
-          <dt>Arrivée</dt><dd>Jeudi vers 13 h</dd>
-          <dt>Départ</dt><dd>Dimanche à 11 h</dd>
-          <dt>WiFi</dt><dd>${esc(c.wifi)}</dd>
-        </dl>
+        <div class="chalet-base-layout">
+          <dl class="kv">
+            <dt>Adresse</dt><dd>${esc(c.adresse)} · <a href="${esc(c.carte)}" target="_blank" rel="noopener">Carte</a></dd>
+            <dt>Séjour</dt><dd>28 au 31 janvier 2027 · ${c.nuits} nuits</dd>
+            <dt>Arrivée</dt><dd>Jeudi vers 13 h</dd>
+            <dt>Départ</dt><dd>Dimanche à 11 h</dd>
+            <dt>WiFi</dt><dd>${esc(c.wifi)}</dd>
+            <dt>Location</dt><dd><a href="https://www.chaletsauquebec.com/en/31969" target="_blank" rel="noopener">Voir l’annonce du chalet</a></dd>
+          </dl>
+          <img class="chalet-base-photo" src="le-simonet.png" alt="Chalet Le Simonet">
+        </div>
       </section>
     </div>
 
     <section class="block">
       <span class="eyebrow">Jour par jour</span><h2>Horaire</h2>
-      <div class="grid">${T.horaire.map((h) => `<div><h3>${esc(h.jour)}</h3><ul class="bullets">${h.items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>`).join('')}</div>
+      <div class="grid schedule-grid">${T.horaire.map((h) => `<div><h3>${esc(h.jour)}</h3><ul class="bullets">${h.items.map((i) => `<li>${scheduleItemMarkup(i)}</li>`).join('')}</ul></div>`).join('')}</div>
     </section>
 
     <div class="grid">
@@ -723,6 +749,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         ${meal?.responsible ? `<span class="pill meal-responsible">${esc(meal.responsible)}</span>` : ''}
         ${meal?.notes ? `<p class="muted">${esc(meal.notes)}</p>` : ''}
         ${meal?.updated_at ? sharedUpdateLabel(meal.updated_at) : ''}
+        ${meal ? `<div class="meal-dishes"><span class="meal-dishes-label">Qui a fait la vaisselle ?</span><div class="meal-dishes-people">${T.participants.map((person) => {
+          const checked = mealDishChecks.some((check) => check.meal_id === meal.id && check.participant === person && check.checked);
+          return `<label><input type="checkbox" data-dishwashing-meal="${esc(meal.id)}" data-dishwashing-person="${esc(person)}"${checked ? ' checked' : ''}><span>${esc(person)}</span></label>`;
+        }).join('')}</div></div>` : ''}
       </article>`;
     };
     const dayMarkup = REPAS_DAYS.map((day) => {
@@ -746,7 +776,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     <div class="meals-layout">
       <section class="meals-main">
         <div class="heading"><div><span class="eyebrow">Autour de la table</span><h2>Plan des repas</h2>${sharedUpdateLabel(latestTimestamp(meals.map((meal) => meal.updated_at)))}</div><span class="count">${plannedCount} PLANIFIÉ${plannedCount === 1 ? '' : 'S'}</span></div>
-        <p class="lead">Du jeudi 28 au dimanche 31 janvier 2027. Les repas sont partagés et modifiables par tous les participants.</p>
+        <p class="lead">Les repas sont partagés et modifiables par tous les participants.</p>
         ${mealError ? `<p class="finance-error" role="alert">${esc(mealError)}</p>` : ''}
         ${mealsLoading ? '<p class="muted">Chargement du plan des repas…</p>' : `<div class="meal-days">${dayMarkup}</div>`}
       </section>
@@ -986,7 +1016,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   // Navigation
   const view = $('#view');
   const tabbar = $('#tabbar');
-  tabbar.innerHTML = tabs.map((t, i) => `<button class="tab" role="tab" data-id="${t.id}" aria-selected="false"><small>${String(i + 1).padStart(2, '0')}</small>${esc(t.label)}</button>`).join('');
+  tabbar.innerHTML = tabs.map((t) => `<button class="tab" role="tab" data-id="${t.id}" aria-selected="false">${esc(t.label)}</button>`).join('');
 
   function show(id) {
     if (!authChecked || !currentUser) return;
@@ -1011,6 +1041,35 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   window.addEventListener('hashchange', () => show(location.hash.slice(1)));
 
   view.addEventListener('change', async (e) => {
+    const dishwashingCheckbox = e.target.closest('input[data-dishwashing-meal]');
+    if (dishwashingCheckbox) {
+      const mealId = dishwashingCheckbox.dataset.dishwashingMeal;
+      const participant = dishwashingCheckbox.dataset.dishwashingPerson;
+      const checked = dishwashingCheckbox.checked;
+      dishwashingCheckbox.disabled = true;
+      mealDishChecks = [
+        ...mealDishChecks.filter((item) => item.meal_id !== mealId || item.participant !== participant),
+        { meal_id: mealId, participant, checked },
+      ];
+      show('repas');
+      try {
+        const { error } = await supabase.from('winterfreeze_meal_dishwashing_checks').upsert({
+          meal_id: mealId,
+          participant,
+          checked,
+          updated_by: currentUser.id,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'meal_id,participant' });
+        if (error) throw new Error(error.message);
+        dishwashingCheckbox.disabled = false;
+      } catch (error) {
+        const message = `Impossible d’enregistrer le suivi de vaisselle : ${error instanceof Error ? error.message : String(error)}`;
+        await refreshMeals();
+        mealError = message;
+        if (location.hash === '#repas') show('repas');
+      }
+      return;
+    }
     const mealDaySelect = e.target.closest('#meal-form select[name="day_number"]');
     if (mealDaySelect) {
       const mealTypeSelect = $('#meal-form select[name="meal_type"]', view);

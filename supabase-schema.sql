@@ -123,6 +123,37 @@ create policy "Participants can edit Winterfreeze meals"
   using (auth.uid() is not null)
   with check (auth.uid() is not null);
 
+create table if not exists public.winterfreeze_meal_dishwashing_checks (
+  meal_id uuid not null references public.winterfreeze_meals(id) on delete cascade,
+  participant text not null check (participant in ('Pat', 'Jop', 'Luc', 'Steve', 'Mike', 'Simon', 'Mathieu', 'Pierre')),
+  checked boolean not null default false,
+  updated_by uuid not null references auth.users(id) on delete restrict default auth.uid(),
+  updated_at timestamptz not null default now(),
+  primary key (meal_id, participant)
+);
+
+alter table public.winterfreeze_meal_dishwashing_checks enable row level security;
+alter table public.winterfreeze_meal_dishwashing_checks force row level security;
+
+revoke all on table public.winterfreeze_meal_dishwashing_checks from anon, authenticated;
+grant select, insert, update on table public.winterfreeze_meal_dishwashing_checks to authenticated;
+
+drop policy if exists "Participants can read Winterfreeze dishwashing checks" on public.winterfreeze_meal_dishwashing_checks;
+create policy "Participants can read Winterfreeze dishwashing checks"
+  on public.winterfreeze_meal_dishwashing_checks for select to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists "Participants can add Winterfreeze dishwashing checks" on public.winterfreeze_meal_dishwashing_checks;
+create policy "Participants can add Winterfreeze dishwashing checks"
+  on public.winterfreeze_meal_dishwashing_checks for insert to authenticated
+  with check (auth.uid() = updated_by);
+
+drop policy if exists "Participants can update Winterfreeze dishwashing checks" on public.winterfreeze_meal_dishwashing_checks;
+create policy "Participants can update Winterfreeze dishwashing checks"
+  on public.winterfreeze_meal_dishwashing_checks for update to authenticated
+  using (auth.uid() is not null)
+  with check (auth.uid() = updated_by);
+
 do $$
 begin
   if not exists (
@@ -132,6 +163,14 @@ begin
       and tablename = 'winterfreeze_meals'
   ) then
     alter publication supabase_realtime add table public.winterfreeze_meals;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'winterfreeze_meal_dishwashing_checks'
+  ) then
+    alter publication supabase_realtime add table public.winterfreeze_meal_dishwashing_checks;
   end if;
 end
 $$;
