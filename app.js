@@ -6,6 +6,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const STORE = 'wtf2027:checks';
   const EXPENSE_CATEGORIES = ['Dépôt', 'Activité', 'Boisson', 'Chalet', 'Collation', 'Divers', 'Gaz', 'Repas'];
+  const RECEIPT_FILE_TYPES = {
+    'application/pdf': 'pdf',
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+  };
   const ARCHIVE_GALLERY_PHOTOS = [
     '1000321.jpg',
     '1000336.jpg',
@@ -24,6 +31,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let legacyChecks = {};
   try { legacyChecks = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { legacyChecks = {}; }
   let expenses = [];
+  let expenseDraft = null;
+  let expenseDraftIsCopy = false;
+  let expenseEditingId = null;
   let checklistItems = [];
   let checklistChecks = [];
   let checkedItemIds = new Set();
@@ -45,6 +55,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let mealDraft = null;
   let galleryLoading = true;
   let galleryUploading = false;
+  let expenseSaving = false;
   let checklistLoading = false;
   let checklistLoaded = false;
   let checklistEditMode = false;
@@ -338,7 +349,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (location.hash === '#finances') show('finances');
     const { data, error } = await supabase
       .from('winterfreeze_expenses')
-      .select('id, description, category, amount, payer, split_between, created_by, created_at')
+      .select('id, description, category, amount, payer, split_between, receipt_path, created_by, created_at')
       .order('created_at', { ascending: false });
     expensesLoading = false;
     meals = [];
@@ -869,31 +880,38 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
           <div class="expense-list">
             ${expenses.length ? expenses.map((expense) => `<article class="expense-row">
               <span class="expense-icon" aria-hidden="true">↗</span>
-              <span class="expense-description">${esc(expense.description)}<small>${esc(expense.category)} · Payé par ${esc(expense.payer)} · Partagé entre ${esc(expenseParticipants(expense).join(', '))} · ${esc(dateFmt.format(new Date(expense.created_at)))}</small></span>
+              <span class="expense-description">${esc(expense.description)}<small>${esc(expense.category)} · Payé par ${esc(expense.payer)} · Partagé entre ${esc(expenseParticipants(expense).join(', '))} · ${esc(dateFmt.format(new Date(expense.created_at)))}</small>${expense.receipt_path ? `<small><button class="text-button" type="button" data-view-receipt="${esc(expense.id)}">Voir le reçu</button></small>` : ''}</span>
               <strong>${money(expense.amount)}</strong>
-              ${expense.created_by === currentUser.id ? `<button class="delete-button" type="button" data-delete-expense="${esc(expense.id)}" aria-label="Supprimer ${esc(expense.description)}">×</button>` : ''}
+              <button class="text-button expense-copy" type="button" data-copy-expense="${esc(expense.id)}">Copier</button>
+              ${expense.created_by === currentUser.id ? `<button class="text-button expense-copy" type="button" data-edit-expense="${esc(expense.id)}">Modifier</button><button class="delete-button" type="button" data-delete-expense="${esc(expense.id)}" aria-label="Supprimer ${esc(expense.description)}">×</button>` : ''}
             </article>`).join('') : '<p class="muted">Aucune dépense pour l’instant. Ajoutez les frais au fur et à mesure.</p>'}
           </div>
         </section>
       </div>
       <aside class="finance-aside">
         <section class="finance-form-card">
-          <span class="eyebrow">Les comptes, en toute simplicité</span><h3>Ajouter une dépense</h3>
+          <span class="eyebrow">Les comptes, en toute simplicité</span><h3>${expenseEditingId ? 'Modifier une dépense' : 'Ajouter une dépense'}</h3>
           <form id="expense-form" class="expense-form">
-            <label>À quoi correspond la dépense?<input name="description" maxlength="120" placeholder="Épicerie, bois de chauffage…" required></label>
-            <label>Catégorie<select name="category">${EXPENSE_CATEGORIES.map((category) => `<option>${esc(category)}</option>`).join('')}</select></label>
-            <label>Montant (CAD)<div class="amount-input"><span>$</span><input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required></div></label>
-            <label>Participant qui a payé<select name="payer">${T.participants.map((person) => `<option>${esc(person)}</option>`).join('')}</select></label>
+            ${expenseDraftIsCopy ? `<p class="expense-copy-notice">Copie d’une dépense. Modifiez les détails et enregistrez pour créer une nouvelle entrée. Le reçu n’est pas copié.</p>` : ''}
+            ${expenseEditingId ? `<p class="expense-copy-notice">Modification d’une dépense existante. Enregistrez pour mettre à jour cette entrée.</p>` : ''}
+            <label>À quoi correspond la dépense?<input name="description" maxlength="120" value="${esc(expenseDraft?.description || '')}" placeholder="Épicerie, bois de chauffage…" required></label>
+            <label>Catégorie<select name="category">${EXPENSE_CATEGORIES.map((category) => `<option${category === expenseDraft?.category ? ' selected' : ''}>${esc(category)}</option>`).join('')}</select></label>
+            <label>Montant (CAD)<div class="amount-input"><span>$</span><input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" value="${expenseDraft ? esc(expenseDraft.amount) : ''}" placeholder="0,00" required></div></label>
+            <label>Participant qui a payé<select name="payer">${T.participants.map((person) => `<option${person === expenseDraft?.payer ? ' selected' : ''}>${esc(person)}</option>`).join('')}</select></label>
+            <label>Reçu${expenseDraft?.receipt_path ? ' (un reçu est déjà joint; en choisir un autre le remplacera)' : ' (facultatif)'}<input name="receipt" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"></label>
+            <small class="form-hint">JPG, PNG, WebP, GIF ou PDF · 10 Mo maximum</small>
             <fieldset class="expense-split">
               <legend>Répartir entre</legend>
               <div class="expense-split-actions">
                 <button class="text-button" type="button" data-expense-split-toggle="check">Tout cocher</button>
                 <button class="text-button" type="button" data-expense-split-toggle="uncheck">Tout décocher</button>
               </div>
-              <div class="expense-split-options">${T.participants.map((person) => `<label><input type="checkbox" name="split_between" value="${esc(person)}" checked><span>${esc(person)}</span></label>`).join('')}</div>
+              <div class="expense-split-options">${T.participants.map((person) => `<label><input type="checkbox" name="split_between" value="${esc(person)}"${!expenseDraft || expenseDraft.splitBetween.includes(person) ? ' checked' : ''}><span>${esc(person)}</span></label>`).join('')}</div>
               <small class="form-hint">Décochez les personnes qui ne partagent pas cette dépense.</small>
             </fieldset>
-            <button class="btn submit-expense" type="submit">Ajouter la dépense <span aria-hidden="true">↗</span></button>
+            ${expenseDraftIsCopy ? '<button class="text-button expense-copy-cancel" type="button" data-cancel-expense-copy>Annuler la copie</button>' : ''}
+            ${expenseEditingId ? '<button class="text-button expense-copy-cancel" type="button" data-cancel-expense-edit>Annuler la modification</button>' : ''}
+            <button class="btn submit-expense" type="submit"${expenseSaving ? ' disabled' : ''}>${expenseSaving ? 'Enregistrement…' : expenseEditingId ? 'Enregistrer les modifications' : 'Ajouter la dépense'} <span aria-hidden="true">↗</span></button>
           </form>
         </section>
       </aside>
@@ -1032,6 +1050,87 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       });
       return;
     }
+    const editExpenseButton = e.target.closest('[data-edit-expense]');
+    if (editExpenseButton) {
+      const expense = expenses.find((item) => item.id === editExpenseButton.dataset.editExpense);
+      if (!expense || expense.created_by !== currentUser?.id) return;
+      expenseDraft = {
+        description: expense.description,
+        category: expense.category,
+        amount: Number(expense.amount).toFixed(2),
+        payer: expense.payer,
+        splitBetween: expenseParticipants(expense),
+        receipt_path: expense.receipt_path || null,
+      };
+      expenseDraftIsCopy = false;
+      expenseEditingId = expense.id;
+      expenseError = '';
+      show('finances');
+      const descriptionInput = view.querySelector('#expense-form input[name="description"]');
+      descriptionInput?.focus();
+      descriptionInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    const copyExpenseButton = e.target.closest('[data-copy-expense]');
+    if (copyExpenseButton) {
+      const expense = expenses.find((item) => item.id === copyExpenseButton.dataset.copyExpense);
+      if (!expense) return;
+      expenseEditingId = null;
+      expenseDraft = {
+        description: expense.description,
+        category: expense.category,
+        amount: Number(expense.amount).toFixed(2),
+        payer: expense.payer,
+        splitBetween: expenseParticipants(expense),
+      };
+      expenseDraftIsCopy = true;
+      expenseError = '';
+      show('finances');
+      const descriptionInput = view.querySelector('#expense-form input[name="description"]');
+      descriptionInput?.focus();
+      descriptionInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (e.target.closest('[data-cancel-expense-copy]')) {
+      expenseDraft = null;
+      expenseDraftIsCopy = false;
+      expenseEditingId = null;
+      expenseError = '';
+      show('finances');
+      return;
+    }
+    if (e.target.closest('[data-cancel-expense-edit]')) {
+      expenseDraft = null;
+      expenseDraftIsCopy = false;
+      expenseEditingId = null;
+      expenseError = '';
+      show('finances');
+      return;
+    }
+    const viewReceiptButton = e.target.closest('[data-view-receipt]');
+    if (viewReceiptButton) {
+      const expense = expenses.find((item) => item.id === viewReceiptButton.dataset.viewReceipt);
+      if (!expense?.receipt_path) return;
+      const receiptWindow = window.open('about:blank', '_blank');
+      if (!receiptWindow) {
+        expenseError = 'Autorisez les fenêtres contextuelles pour ouvrir le reçu.';
+        show('finances');
+        return;
+      }
+      receiptWindow.opener = null;
+      try {
+        const { data, error } = await supabase.storage
+          .from('winterfreeze-receipts')
+          .createSignedUrl(expense.receipt_path, 900);
+        if (error) throw new Error(error.message);
+        receiptWindow.location.replace(data.signedUrl);
+      } catch (error) {
+        receiptWindow.close();
+        expenseError = `Impossible d’ouvrir le reçu : ${error instanceof Error ? error.message : String(error)}`;
+        show('finances');
+      }
+      return;
+    }
     const deletePhotoButton = e.target.closest('[data-delete-photo]');
     if (deletePhotoButton) {
       deletePhotoButton.disabled = true;
@@ -1062,9 +1161,33 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     const deleteButton = e.target.closest('[data-delete-expense]');
     if (deleteButton) {
       deleteButton.disabled = true;
-      const { error } = await supabase.from('winterfreeze_expenses').delete().eq('id', deleteButton.dataset.deleteExpense);
-      if (error) expenseError = `Impossible de supprimer cette dépense : ${error.message}`;
+      const expense = expenses.find((item) => item.id === deleteButton.dataset.deleteExpense);
+      try {
+        const { error } = await supabase.from('winterfreeze_expenses').delete().eq('id', deleteButton.dataset.deleteExpense);
+        if (error) throw new Error(error.message);
+      } catch (error) {
+        const message = `Impossible de supprimer cette dépense : ${error instanceof Error ? error.message : String(error)}`;
+        await refreshExpenses();
+        expenseError = message;
+        show('finances');
+        return;
+      }
+      let receiptCleanupError = '';
+      if (expense?.receipt_path) {
+        try {
+          const { error: storageError } = await supabase.storage
+            .from('winterfreeze-receipts')
+            .remove([expense.receipt_path]);
+          if (storageError) throw new Error(storageError.message);
+        } catch (error) {
+          receiptCleanupError = ` La dépense a été supprimée, mais le fichier du reçu n’a pas pu être supprimé : ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
       await refreshExpenses();
+      if (receiptCleanupError) {
+        expenseError = receiptCleanupError.trim();
+        show('finances');
+      }
       return;
     }
     if (e.target.closest('[data-toggle-list-editor]')) {
@@ -1328,27 +1451,115 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     const description = String(fields.get('description') || '').trim();
     const amount = Math.round(Number(fields.get('amount')) * 100) / 100;
     const payer = String(fields.get('payer') || '');
+    const receipt = fields.get('receipt');
+    const receiptFile = receipt instanceof File && receipt.name ? receipt : null;
     const splitBetween = fields.getAll('split_between').map(String);
+    expenseDraft = {
+      description,
+      category: String(fields.get('category') || ''),
+      amount: String(fields.get('amount') || ''),
+      payer,
+      splitBetween,
+      receipt_path: expenseDraft?.receipt_path || null,
+    };
+    if (expenseSaving) return;
     if (!currentUser || !description || !Number.isFinite(amount) || amount <= 0 || !T.participants.includes(payer)
       || splitBetween.length === 0 || splitBetween.some((person) => !T.participants.includes(person))) {
       expenseError = 'Entrez une description, un montant positif, un participant valide et au moins une personne à inclure dans le partage.';
       show('finances');
       return;
     }
-    expenseError = '';
-    const { error } = await supabase.from('winterfreeze_expenses').insert({
-      description,
-      category: String(fields.get('category') || ''),
-      amount,
-      payer,
-      split_between: splitBetween,
-      created_by: currentUser.id,
-    });
-    if (error) {
-      expenseError = `Impossible d’ajouter la dépense : ${error.message}`;
+    if (receiptFile && (!RECEIPT_FILE_TYPES[receiptFile.type] || receiptFile.size === 0 || receiptFile.size > 10 * 1024 * 1024)) {
+      expenseError = 'Le reçu doit être un fichier JPG, PNG, WebP, GIF ou PDF non vide de 10 Mo maximum.';
       show('finances');
-    } else {
+      return;
+    }
+    expenseError = '';
+    expenseSaving = true;
+    show('finances');
+    const uploadingUser = currentUser;
+    let uploadedReceiptPath = '';
+    let receiptCleanupNotice = '';
+    try {
+      if (receiptFile) {
+        const extension = RECEIPT_FILE_TYPES[receiptFile.type];
+        const receiptPath = `${uploadingUser.id}/${crypto.randomUUID()}.${extension}`;
+        const { data, error } = await supabase.storage
+          .from('winterfreeze-receipts')
+          .upload(receiptPath, receiptFile, {
+            contentType: receiptFile.type,
+            cacheControl: '3600',
+            upsert: false,
+          });
+        if (error) throw new Error(error.message);
+        uploadedReceiptPath = data?.path || receiptPath;
+        if (!data?.path) throw new Error('Le téléversement du reçu n’a pas retourné de chemin de fichier.');
+      }
+      const expenseValues = {
+        description,
+        category: String(fields.get('category') || ''),
+        amount,
+        payer,
+        split_between: splitBetween,
+        receipt_path: uploadedReceiptPath || expenseDraft.receipt_path || null,
+        created_by: uploadingUser.id,
+      };
+      if (expenseEditingId) {
+        const existingReceiptPath = expenseDraft.receipt_path;
+        const { data, error } = await supabase.from('winterfreeze_expenses')
+          .update({
+            description: expenseValues.description,
+            category: expenseValues.category,
+            amount: expenseValues.amount,
+            payer: expenseValues.payer,
+            split_between: expenseValues.split_between,
+            receipt_path: expenseValues.receipt_path,
+          })
+          .eq('id', expenseEditingId)
+          .eq('created_by', uploadingUser.id)
+          .select('id')
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!data) throw new Error('Cette dépense n’existe plus ou vous ne pouvez pas la modifier.');
+        if (uploadedReceiptPath && existingReceiptPath) {
+          try {
+            const { error: cleanupError } = await supabase.storage
+              .from('winterfreeze-receipts')
+              .remove([existingReceiptPath]);
+            if (cleanupError) throw new Error(cleanupError.message);
+          } catch (error) {
+            receiptCleanupNotice = `La dépense a été modifiée, mais l’ancien reçu n’a pas pu être supprimé : ${error instanceof Error ? error.message : String(error)}`;
+          }
+        }
+      } else {
+        const { error } = await supabase.from('winterfreeze_expenses').insert(expenseValues);
+        if (error) throw new Error(error.message);
+      }
+      expenseDraft = null;
+      expenseDraftIsCopy = false;
+      expenseEditingId = null;
       await refreshExpenses();
+      if (receiptCleanupNotice) {
+        expenseError = receiptCleanupNotice;
+        show('finances');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      let cleanupMessage = '';
+      if (uploadedReceiptPath) {
+        try {
+          const { error: cleanupError } = await supabase.storage
+            .from('winterfreeze-receipts')
+            .remove([uploadedReceiptPath]);
+          if (cleanupError) throw new Error(cleanupError.message);
+        } catch (cleanupError) {
+          cleanupMessage = ` Le fichier du reçu téléversé n’a pas pu être supprimé : ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
+        }
+      }
+      expenseError = `Impossible de ${expenseEditingId ? 'modifier' : 'ajouter'} la dépense : ${message}.${cleanupMessage}`;
+    } finally {
+      expenseSaving = false;
+      if (location.hash === '#finances') show('finances');
     }
   });
 

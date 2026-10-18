@@ -12,6 +12,8 @@ create table if not exists public.winterfreeze_expenses (
 alter table public.winterfreeze_expenses
   add column if not exists split_between text[] not null
   default ARRAY['Pat', 'Jop', 'Luc', 'Steve', 'Mike', 'Simon', 'Mathieu', 'Pierre']::text[];
+alter table public.winterfreeze_expenses
+  add column if not exists receipt_path text;
 
 alter table public.winterfreeze_expenses
   drop constraint if exists winterfreeze_expenses_split_between_check;
@@ -21,15 +23,23 @@ alter table public.winterfreeze_expenses
     cardinality(split_between) > 0
     and split_between <@ ARRAY['Pat', 'Jop', 'Luc', 'Steve', 'Mike', 'Simon', 'Mathieu', 'Pierre']::text[]
   );
+alter table public.winterfreeze_expenses
+  drop constraint if exists winterfreeze_expenses_receipt_path_check;
+alter table public.winterfreeze_expenses
+  add constraint winterfreeze_expenses_receipt_path_check
+  check (receipt_path is null or receipt_path like created_by::text || '/%');
 
 create index if not exists winterfreeze_expenses_created_at_idx
   on public.winterfreeze_expenses (created_at desc);
+create unique index if not exists winterfreeze_expenses_receipt_path_idx
+  on public.winterfreeze_expenses (receipt_path)
+  where receipt_path is not null;
 
 alter table public.winterfreeze_expenses enable row level security;
 alter table public.winterfreeze_expenses force row level security;
 
 revoke all on table public.winterfreeze_expenses from anon, authenticated;
-grant select, insert, delete on table public.winterfreeze_expenses to authenticated;
+grant select, insert, update, delete on table public.winterfreeze_expenses to authenticated;
 
 drop policy if exists "Participants can read Winterfreeze expenses" on public.winterfreeze_expenses;
 create policy "Participants can read Winterfreeze expenses"
@@ -39,6 +49,12 @@ create policy "Participants can read Winterfreeze expenses"
 drop policy if exists "Participants can add Winterfreeze expenses" on public.winterfreeze_expenses;
 create policy "Participants can add Winterfreeze expenses"
   on public.winterfreeze_expenses for insert to authenticated
+  with check (auth.uid() = created_by);
+
+drop policy if exists "Creators can edit their Winterfreeze expenses" on public.winterfreeze_expenses;
+create policy "Creators can edit their Winterfreeze expenses"
+  on public.winterfreeze_expenses for update to authenticated
+  using (auth.uid() = created_by)
   with check (auth.uid() = created_by);
 
 drop policy if exists "Creators can delete their Winterfreeze expenses" on public.winterfreeze_expenses;
@@ -187,6 +203,40 @@ create policy "Participants can delete their Winterfreeze gallery files"
   on storage.objects for delete to authenticated
   using (
     bucket_id = 'winterfreeze-gallery'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'winterfreeze-receipts',
+  'winterfreeze-receipts',
+  false,
+  10485760,
+  array['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']::text[]
+)
+on conflict (id) do update
+set public = false,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Participants can view Winterfreeze receipt files" on storage.objects;
+create policy "Participants can view Winterfreeze receipt files"
+  on storage.objects for select to authenticated
+  using (bucket_id = 'winterfreeze-receipts' and auth.uid() is not null);
+
+drop policy if exists "Participants can upload their Winterfreeze receipt files" on storage.objects;
+create policy "Participants can upload their Winterfreeze receipt files"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'winterfreeze-receipts'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "Participants can delete their Winterfreeze receipt files" on storage.objects;
+create policy "Participants can delete their Winterfreeze receipt files"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'winterfreeze-receipts'
     and (storage.foldername(name))[1] = auth.uid()::text
   );
 
