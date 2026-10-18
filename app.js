@@ -882,6 +882,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
             <label>Participant qui a payé<select name="payer">${T.participants.map((person) => `<option>${esc(person)}</option>`).join('')}</select></label>
             <fieldset class="expense-split">
               <legend>Répartir entre</legend>
+              <div class="expense-split-actions">
+                <button class="text-button" type="button" data-expense-split-toggle="check">Tout cocher</button>
+                <button class="text-button" type="button" data-expense-split-toggle="uncheck">Tout décocher</button>
+              </div>
               <div class="expense-split-options">${T.participants.map((person) => `<label><input type="checkbox" name="split_between" value="${esc(person)}" checked><span>${esc(person)}</span></label>`).join('')}</div>
               <small class="form-hint">Décochez les personnes qui ne partagent pas cette dépense.</small>
             </fieldset>
@@ -1016,6 +1020,14 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     }
   });
   view.addEventListener('click', async (e) => {
+    const splitToggle = e.target.closest('[data-expense-split-toggle]');
+    if (splitToggle) {
+      const checked = splitToggle.dataset.expenseSplitToggle === 'check';
+      view.querySelectorAll('#expense-form input[name="split_between"]').forEach((checkbox) => {
+        checkbox.checked = checked;
+      });
+      return;
+    }
     const deletePhotoButton = e.target.closest('[data-delete-photo]');
     if (deletePhotoButton) {
       deletePhotoButton.disabled = true;

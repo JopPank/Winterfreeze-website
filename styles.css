@@ -161,6 +161,7 @@ tr.total td { font-weight: 700; border-bottom: 0; }
 .form-hint { color: var(--muted); font-size: 10px; }
 .expense-split { min-width: 0; margin: 0; border: 1px solid #d3e2ea; border-radius: 3px; padding: 10px; }
 .expense-split legend { padding: 0 4px; color: #43524b; font-size: 10px; font-weight: 700; }
+.expense-split-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 4px; }
 .expense-split-options { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
 .expense-split-options label { display: flex; align-items: center; gap: 6px; min-height: 28px; font-size: 11px; font-weight: 500; }
 .expense-split-options input { width: 16px; min-height: 16px; margin: 0; border: 0; padding: 0; background: transparent; accent-color: var(--navy); }
