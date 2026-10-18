@@ -39,10 +39,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let checkedItemIds = new Set();
   let meals = [];
   let mealDishChecks = [];
+  let planningRows = [];
   let galleryPhotos = [];
   let expenseError = '';
   let checklistError = '';
   let mealError = '';
+  let planningError = '';
   let galleryError = '';
   let siteAuthError = '';
   let currentUser = null;
@@ -51,6 +53,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let authStateEventReceived = false;
   let expensesLoading = false;
   let mealsLoading = true;
+  let planningLoading = true;
   let mealSaving = false;
   let editingMealSlot = null;
   let mealDraft = null;
@@ -65,6 +68,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let mealsChannel = null;
   let mealsRefreshTimer = null;
   let mealLoadPromise = null;
+  let planningLoadPromise = null;
+  let planningChannel = null;
+  const planningSavingKeys = new Set();
   let galleryChannel = null;
   let galleryRefreshTimer = null;
   let checklistChannel = null;
@@ -126,7 +132,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     })));
     Object.entries(window.EQUIP).forEach(([person, items]) => items.forEach((label, index) => rows.push({
       list_key: 'equipement', group_name: person, label, quantity: '', detail: '', status: '',
-      sort_order: index, seed_key: `eq:${person}:${index}`,
+      sort_order: index,
+      seed_key: label === '1 gros Ziploc de glace maison suffit pour les drinks'
+        ? `eq:${person}:drink-ice`
+        : `eq:${person}:${index}`,
     })));
     window.WTFBOX.forEach((item, index) => rows.push({
       list_key: 'box', group_name: '', label: item.item, quantity: '', detail: '', status: item.apres2026 || '',
@@ -342,6 +351,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       await refreshGallery();
       startGallerySync();
       await initializeChecklists();
+      await initializePlanning();
     }
   }
   async function refreshExpenses() {
@@ -427,6 +437,98 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       mealLoadPromise = null;
     });
     return mealLoadPromise;
+  }
+  async function refreshPlanning() {
+    if (!supabase || !currentUser) return;
+    const requestedBy = currentUser.id;
+    planningLoading = true;
+    if (location.hash === '#planification') show('planification');
+    try {
+      const { data, error } = await supabase
+        .from('winterfreeze_planning_discussions')
+        .select('discussion_key, discussed, decision');
+      if (currentUser?.id !== requestedBy) return;
+      if (error) throw new Error(error.message);
+      planningRows = data || [];
+      planningError = '';
+    } catch (error) {
+      if (currentUser?.id !== requestedBy) return;
+      planningRows = [];
+      planningError = `Impossible de charger la planification : ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      if (currentUser?.id === requestedBy) planningLoading = false;
+    }
+    if (currentUser?.id === requestedBy && location.hash === '#planification') show('planification');
+  }
+  async function initializePlanning() {
+    if (!supabase || !currentUser || planningLoadPromise) return planningLoadPromise;
+    const requestedBy = currentUser.id;
+    planningLoadPromise = (async () => {
+      planningLoading = true;
+      planningError = '';
+      if (location.hash === '#planification') show('planification');
+      try {
+        const { error } = await supabase.from('winterfreeze_planning_discussions').upsert(
+          T.planification2027.map((item) => ({
+            discussion_key: item.id,
+            discussed: false,
+            decision: '',
+            updated_by: currentUser.id,
+          })),
+          { onConflict: 'discussion_key', ignoreDuplicates: true },
+        );
+        if (currentUser?.id !== requestedBy) return;
+        if (error) throw new Error(error.message);
+        await refreshPlanning();
+        startPlanningSync();
+      } catch (error) {
+        if (currentUser?.id === requestedBy) {
+          planningRows = [];
+          planningLoading = false;
+          planningError = `Impossible d’initialiser la planification : ${error instanceof Error ? error.message : String(error)}`;
+          if (location.hash === '#planification') show('planification');
+        }
+      }
+    })().finally(() => {
+      planningLoadPromise = null;
+    });
+    return planningLoadPromise;
+  }
+  function applyPlanningRealtimeRow(row) {
+    if (!row?.discussion_key) return;
+    const index = planningRows.findIndex((item) => item.discussion_key === row.discussion_key);
+    if (index === -1) planningRows.push(row);
+    else planningRows[index] = row;
+    if (location.hash !== '#planification') return;
+    const checkbox = view.querySelector(`[data-planning-discussed="${row.discussion_key}"]`);
+    const textarea = view.querySelector(`[data-planning-decision="${row.discussion_key}"]`);
+    if (!planningSavingKeys.has(row.discussion_key)) {
+      if (checkbox) checkbox.checked = row.discussed;
+      if (textarea && document.activeElement !== textarea) textarea.value = row.decision || '';
+    }
+  }
+  function stopPlanningSync() {
+    if (planningChannel && supabase) void supabase.removeChannel(planningChannel);
+    planningChannel = null;
+  }
+  function startPlanningSync() {
+    if (!supabase || !currentUser) return;
+    stopPlanningSync();
+    planningChannel = supabase
+      .channel('winterfreeze-planning-discussions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'winterfreeze_planning_discussions' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          planningRows = planningRows.filter((row) => row.discussion_key !== payload.old.discussion_key);
+          return;
+        }
+        applyPlanningRealtimeRow(payload.new);
+      })
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          planningError = 'La mise à jour en direct est indisponible. Rechargez cette page pour voir les changements.';
+          if (location.hash === '#planification') show('planification');
+        }
+      });
   }
   function stopMealsSync() {
     if (mealsRefreshTimer) clearInterval(mealsRefreshTimer);
@@ -529,11 +631,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         void initializeMeals();
         void refreshGallery().then(startGallerySync);
         void initializeChecklists();
+        void initializePlanning();
       } else {
         stopFinanceSync();
         stopMealsSync();
         stopGallerySync();
         stopChecklistSync();
+        stopPlanningSync();
         expenses = [];
         expensesLoading = false;
         galleryPhotos = [];
@@ -544,6 +648,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         checklistChecks = [];
         meals = [];
         mealDishChecks = [];
+        planningRows = [];
+        planningLoading = true;
+        planningError = '';
         checkedItemIds = new Set();
         checklistLoading = false;
         checklistLoaded = false;
@@ -657,6 +764,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     { id: 'finances', label: 'Finances', render: renderFinances },
     { id: 'galerie', label: 'Galerie', render: renderGallery },
     { id: 'dnd', label: 'D&D', render: renderDnd },
+    { id: 'planification', label: 'Planification 2027', render: renderPlanning },
     { id: 'bilan', label: 'Notes 2026', render: renderBilan },
   ];
 
@@ -1013,6 +1121,32 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     </section>`;
   }
 
+  function renderPlanning() {
+    const rows = new Map(planningRows.map((row) => [row.discussion_key, row]));
+    return `
+    <section class="block planning-page">
+      <span class="eyebrow">Ordre du jour</span><h2>Planification 2027</h2>
+      <p class="lead">Points à discuter pendant le dîner avant le voyage. Cochez chaque point après en avoir parlé et notez la décision ou le suivi à faire.</p>
+      <p class="finance-error planning-error" role="alert"${planningError ? '' : ' hidden'}>${esc(planningError)}</p>
+      ${planningLoading ? '<p class="muted">Chargement de l’ordre du jour…</p>' : ''}
+      <div class="planning-list">${T.planification2027.map((item) => {
+        const row = rows.get(item.id);
+        const discussed = Boolean(row?.discussed);
+        const saving = planningSavingKeys.has(item.id);
+        return `<article class="planning-item">
+          <label class="planning-topic">
+            <input type="checkbox" data-planning-discussed="${esc(item.id)}"${discussed ? ' checked' : ''}${saving || !row ? ' disabled' : ''}>
+            <span class="planning-topic-text">${esc(item.topic)}</span>
+            <span class="planning-discussed-label">Discuté</span>
+          </label>
+          <label class="planning-decision-label" for="planning-decision-${esc(item.id)}">Décision ou suivi</label>
+          <textarea id="planning-decision-${esc(item.id)}" data-planning-decision="${esc(item.id)}" maxlength="2000" placeholder="Notez la décision ou le suivi à faire…" ${saving || !row ? 'disabled' : ''}>${esc(row?.decision || '')}</textarea>
+          <button class="btn planning-save" type="button" data-save-planning="${esc(item.id)}"${saving || !row ? ' disabled' : ''}>${saving ? 'Enregistrement…' : 'Enregistrer la décision'}</button>
+        </article>`;
+      }).join('')}</div>
+    </section>`;
+  }
+
   // Navigation
   const view = $('#view');
   const tabbar = $('#tabbar');
@@ -1041,6 +1175,37 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   window.addEventListener('hashchange', () => show(location.hash.slice(1)));
 
   view.addEventListener('change', async (e) => {
+    const planningCheckbox = e.target.closest('input[data-planning-discussed]');
+    if (planningCheckbox) {
+      const discussionKey = planningCheckbox.dataset.planningDiscussed;
+      const row = planningRows.find((item) => item.discussion_key === discussionKey);
+      if (!row) return;
+      const discussed = planningCheckbox.checked;
+      planningSavingKeys.add(discussionKey);
+      planningCheckbox.disabled = true;
+      try {
+        const { error } = await supabase.from('winterfreeze_planning_discussions').update({
+          discussed,
+          updated_by: currentUser.id,
+          updated_at: new Date().toISOString(),
+        }).eq('discussion_key', discussionKey);
+        if (error) throw new Error(error.message);
+        planningRows = planningRows.map((item) => item.discussion_key === discussionKey ? { ...item, discussed } : item);
+        planningError = '';
+      } catch (error) {
+        planningCheckbox.checked = row.discussed;
+        planningError = `Impossible d’enregistrer le point discuté : ${error instanceof Error ? error.message : String(error)}`;
+      } finally {
+        planningSavingKeys.delete(discussionKey);
+        planningCheckbox.disabled = false;
+      }
+      const errorMessage = view.querySelector('.planning-error');
+      if (errorMessage) {
+        errorMessage.textContent = planningError;
+        errorMessage.hidden = !planningError;
+      }
+      return;
+    }
     const dishwashingCheckbox = e.target.closest('input[data-dishwashing-meal]');
     if (dishwashingCheckbox) {
       const mealId = dishwashingCheckbox.dataset.dishwashingMeal;
@@ -1101,6 +1266,42 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     }
   });
   view.addEventListener('click', async (e) => {
+    const savePlanningButton = e.target.closest('[data-save-planning]');
+    if (savePlanningButton) {
+      const discussionKey = savePlanningButton.dataset.savePlanning;
+      const row = planningRows.find((item) => item.discussion_key === discussionKey);
+      const textarea = view.querySelector(`[data-planning-decision="${discussionKey}"]`);
+      if (!row || !textarea || planningSavingKeys.has(discussionKey)) return;
+      const decision = textarea.value.trim();
+      planningSavingKeys.add(discussionKey);
+      savePlanningButton.disabled = true;
+      textarea.disabled = true;
+      const checkbox = view.querySelector(`[data-planning-discussed="${discussionKey}"]`);
+      if (checkbox) checkbox.disabled = true;
+      try {
+        const { error } = await supabase.from('winterfreeze_planning_discussions').update({
+          decision,
+          updated_by: currentUser.id,
+          updated_at: new Date().toISOString(),
+        }).eq('discussion_key', discussionKey);
+        if (error) throw new Error(error.message);
+        planningRows = planningRows.map((item) => item.discussion_key === discussionKey ? { ...item, decision } : item);
+        planningError = '';
+      } catch (error) {
+        planningError = `Impossible d’enregistrer la décision : ${error instanceof Error ? error.message : String(error)}`;
+      } finally {
+        planningSavingKeys.delete(discussionKey);
+        savePlanningButton.disabled = false;
+        textarea.disabled = false;
+        if (checkbox) checkbox.disabled = false;
+      }
+      const errorMessage = view.querySelector('.planning-error');
+      if (errorMessage) {
+        errorMessage.textContent = planningError;
+        errorMessage.hidden = !planningError;
+      }
+      return;
+    }
     const splitToggle = e.target.closest('[data-expense-split-toggle]');
     if (splitToggle) {
       const checked = splitToggle.dataset.expenseSplitToggle === 'check';

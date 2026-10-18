@@ -72,7 +72,6 @@ window.TRIP = {
   activites: [
     { t: 'Cribbage', d: 'Mike' },
     { t: 'Jeux de société', d: 'Tous' },
-    { t: 'PS3', d: 'Pat' },
     { t: 'DUNGEON!', d: 'Tous' },
     { t: 'Spa et ping-pong / billard', d: 'Tous' },
   ],
@@ -120,7 +119,10 @@ window.TRIP = {
       '2 c. à thé de farine (ou un peu plus)',
       'Sel et poivre',
     ]},
-    { nom: 'Déjeuners (Jop / Pat)', etapes: ['Œufs', 'Bacon', 'Patates', 'Pain', 'Beurre', 'Ketchup'] },
+    { nom: 'Œufs brouillés (Jop)', etapes: [
+      'Garder les œufs brouillés : Jop en a mis 22 œufs.',
+      'Jop : mettre plus de blancs d’œufs dans les œufs brouillés.',
+    ] },
   ],
   epicerie: [
     { magasin: 'Épicerie (Mike et Jop)', items: [
@@ -187,14 +189,15 @@ window.TRIP = {
   ],
   bilan2026: [
     ['À retenir', [
+      'On a décidé de ne pas faire le poulet au beurre.',
+      'Sauce du porc au porto : Luc doit décider s’il faut en réduire la quantité, puisqu’il en est resté trop.',
+      'Échalotes du porc au porto : Luc doit décider s’il en faut moins.',
       'Faire 3 tasses de riz pour le souper au porc',
       'Faire plus de buffalo chicken dip, peut-être que c’est juste ça le souper',
       'Casser la glace des marches du spa',
       'Se forcer à faire une marche après souper',
       'Pub night avec le chicken dip le jeudi',
-      'Tacos au poulet Costco le vendredi : ceux qui n’aiment pas ça apportent leur viande',
       'Faire 1 heure de prépa D&D dans le salon avant',
-      'Garder les scrambled (Jop en a mis 22) et y mettre plus de blanc d’œuf',
       '1,5 sac de petites patates par matin',
       'Apporter du petit bois pour réussir le premier feu',
       'Apporter les bières dans des caisses pour avoir du carton à brûler',
@@ -207,14 +210,20 @@ window.TRIP = {
       'Jop : apporter plus de sucré',
       'Mike : booster, matelas pour le sous-sol, jump starter et trousse d’urgence',
       'Steve : situation bagels / pretzels',
-      'Mike et Mathieu : peut-être MD d’une session de D&D (à décider dans le chat)',
+      'Mike et Mathieu : peut-être DM d’une session de D&D (à décider dans le chat)',
     ]],
-    ['On a aimé', [
-      'Longueur d’ondes, Magic Maze, Sylvio 12 cartes (pas joué à The Crew ni Pandémie)',
-      'Ping-pong, un peu de billard et beaucoup de Nintendo de Simon',
-      'Assiettes de papier quand le lave-vaisselle est brisé',
-      'Arriver à 12 h',
-    ]],
+  ],
+  planification2027: [
+    { id: 'pub-reservation', topic: 'Réserver d’avance le déjeuner ou le dîner au pub.' },
+    { id: 'caesar-bacon', topic: 'Acheter la quantité parfaite de bacon deux fois pour les Caesars.' },
+    { id: 'confirm-suppers', topic: 'Confirmer les soupers.' },
+    { id: 'confirm-grocery-list', topic: 'Confirmer la liste d’épicerie.' },
+    { id: 'grocery-assignments', topic: 'Confirmer qui fait chaque épicerie : Costco (Luc), SAQ (Mike), épicerie (Mike et Jop).' },
+    { id: 'dnd-schedule', topic: 'Confirmer l’horaire D&D : jeudi soir, puis vendredi après le déjeuner jusqu’au souper.' },
+    { id: 'mini-kcup', topic: 'Ajouter la mini-K-Cup dans la WTF Box.' },
+    { id: 'dnd-format', topic: 'La formule D&D du jeudi soir et du vendredi jusqu’au souper était parfaite : la reconduire ?' },
+    { id: 'fire-starter', topic: 'Papier pour allumer le feu de foyer : Mike apporte le papier et le bois d’allumage.' },
+    { id: 'maple-syrup', topic: 'Est-ce que Matt apporte son sirop ?' },
   ],
   rotation: 'Simon était on top en 2026, ça sera le tour de Thompson en 2027.',
   dnd: {
@@ -235,7 +244,7 @@ window.TRIP = {
       'Mettre son personnage à jour : inventaire, histoire, motivations.',
       'Bien connaître ses feats, capacités et armes.',
       'Lire les résumés des sessions précédentes.',
-      'Règles : seulement le PHB; les exceptions passent par le MD.',
+      'Règles : seulement le PHB; les exceptions passent par le DM.',
     ],
     rappels: [
       ['Luc — Arannis', 'Hunter’s Prey : +1d8 si la cible est déjà blessée. Extra Attack : deux flèches. Hunter’s Mark : +1d6.'],

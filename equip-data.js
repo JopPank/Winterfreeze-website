@@ -76,7 +76,8 @@ window.EQUIP={
   "Petite glacière (pour bières dehors)",
   "Sac de glace",
   "Smokes (2 pqt)",
-  "Coffre à pêche vert"
+  "Coffre à pêche vert",
+  "1 gros Ziploc de glace maison suffit pour les drinks"
  ],
  "Jop": [
   "Petite glacière (pour bières dehors)",
@@ -126,7 +127,8 @@ window.EQUIP={
   "Jeu de cartes de golf",
   "Mini Cafetière KCup Gator",
   "La WTF box",
-  "La Gator Box"
+  "La Gator Box",
+  "1 gros Ziploc de glace maison suffit pour les drinks"
  ],
  "Mike": [
   "Linge",

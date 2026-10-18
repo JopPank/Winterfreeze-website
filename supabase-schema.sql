@@ -123,6 +123,36 @@ create policy "Participants can edit Winterfreeze meals"
   using (auth.uid() is not null)
   with check (auth.uid() is not null);
 
+create table if not exists public.winterfreeze_planning_discussions (
+  discussion_key text primary key check (char_length(trim(discussion_key)) between 1 and 80),
+  discussed boolean not null default false,
+  decision text not null default '' check (char_length(decision) <= 2000),
+  updated_by uuid not null references auth.users(id) on delete restrict default auth.uid(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.winterfreeze_planning_discussions enable row level security;
+alter table public.winterfreeze_planning_discussions force row level security;
+
+revoke all on table public.winterfreeze_planning_discussions from anon, authenticated;
+grant select, insert, update on table public.winterfreeze_planning_discussions to authenticated;
+
+drop policy if exists "Participants can read Winterfreeze planning discussions" on public.winterfreeze_planning_discussions;
+create policy "Participants can read Winterfreeze planning discussions"
+  on public.winterfreeze_planning_discussions for select to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists "Participants can add Winterfreeze planning discussions" on public.winterfreeze_planning_discussions;
+create policy "Participants can add Winterfreeze planning discussions"
+  on public.winterfreeze_planning_discussions for insert to authenticated
+  with check (auth.uid() = updated_by);
+
+drop policy if exists "Participants can update Winterfreeze planning discussions" on public.winterfreeze_planning_discussions;
+create policy "Participants can update Winterfreeze planning discussions"
+  on public.winterfreeze_planning_discussions for update to authenticated
+  using (auth.uid() is not null)
+  with check (auth.uid() = updated_by);
+
 create table if not exists public.winterfreeze_meal_dishwashing_checks (
   meal_id uuid not null references public.winterfreeze_meals(id) on delete cascade,
   participant text not null check (participant in ('Pat', 'Jop', 'Luc', 'Steve', 'Mike', 'Simon', 'Mathieu', 'Pierre')),
@@ -163,6 +193,14 @@ begin
       and tablename = 'winterfreeze_meals'
   ) then
     alter publication supabase_realtime add table public.winterfreeze_meals;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'winterfreeze_planning_discussions'
+  ) then
+    alter publication supabase_realtime add table public.winterfreeze_planning_discussions;
   end if;
   if not exists (
     select 1 from pg_publication_tables
@@ -339,8 +377,12 @@ create table if not exists public.winterfreeze_checklist_checks (
 
 create table if not exists public.winterfreeze_list_seed_status (
   id boolean primary key default true check (id),
-  completed boolean not null default false
+  completed boolean not null default false,
+  equipment_ice_seeded boolean not null default false
 );
+
+alter table public.winterfreeze_list_seed_status
+  add column if not exists equipment_ice_seeded boolean not null default false;
 
 insert into public.winterfreeze_list_seed_status (id, completed)
 values (true, false)
@@ -401,6 +443,7 @@ set search_path = public
 as $$
 declare
   seed_completed boolean;
+  ice_seeded boolean;
 begin
   if auth.uid() is null then
     raise exception 'Authentication required';
@@ -409,14 +452,10 @@ begin
     raise exception 'Checklist seed must be a JSON array';
   end if;
 
-  select completed into seed_completed
+  select completed, equipment_ice_seeded into seed_completed, ice_seeded
   from public.winterfreeze_list_seed_status
   where id = true
   for update;
-
-  if seed_completed then
-    return false;
-  end if;
 
   insert into public.winterfreeze_checklist_items
     (list_key, group_name, label, quantity, detail, status, sort_order, seed_key, created_by)
@@ -440,18 +479,40 @@ begin
     sort_order integer,
     seed_key text
   )
+  where not seed_completed
+     or item.seed_key in ('eq:Pat:drink-ice', 'eq:Jop:drink-ice')
   on conflict (seed_key) do nothing;
 
-  insert into public.winterfreeze_checklist_checks (item_id, checked, updated_by)
-  select id, true, auth.uid()
-  from public.winterfreeze_checklist_items
-  where seed_key = any(coalesce(p_checked_seed_keys, '{}'))
-  on conflict (item_id) do nothing;
+  if not seed_completed then
+    insert into public.winterfreeze_checklist_checks (item_id, checked, updated_by)
+    select id, true, auth.uid()
+    from public.winterfreeze_checklist_items
+    where seed_key = any(coalesce(p_checked_seed_keys, '{}'))
+    on conflict (item_id) do nothing;
 
-  update public.winterfreeze_list_seed_status
-  set completed = true
-  where id = true;
-  return true;
+    update public.winterfreeze_list_seed_status
+    set completed = true,
+        equipment_ice_seeded = (
+          select count(*) = 2
+          from jsonb_to_recordset(p_items) as item(seed_key text)
+          where item.seed_key in ('eq:Pat:drink-ice', 'eq:Jop:drink-ice')
+        )
+    where id = true;
+    return true;
+  end if;
+
+  if not ice_seeded then
+    if (
+      select count(*) = 2
+      from jsonb_to_recordset(p_items) as item(seed_key text)
+      where item.seed_key in ('eq:Pat:drink-ice', 'eq:Jop:drink-ice')
+    ) then
+      update public.winterfreeze_list_seed_status
+      set equipment_ice_seeded = true
+      where id = true;
+    end if;
+  end if;
+  return false;
 end
 $$;
 
