@@ -228,9 +228,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       ? T.participants.filter((person) => expense.split_between.includes(person))
       : T.participants;
   }
+  function isDepositExpense(expense) {
+    return String(expense.category || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase() === 'depot';
+  }
   function calculateSettlements() {
     const totalCents = expenses.reduce((sum, expense) =>
-      sum + (expense.category === 'Dépôt' ? 0 : Math.round(expense.amount * 100)), 0);
+      sum + (isDepositExpense(expense) ? 0 : Math.round(expense.amount * 100)), 0);
     const shares = Object.fromEntries(T.participants.map((person) => [person, 0]));
     for (const expense of expenses) {
       const participants = expenseParticipants(expense);
