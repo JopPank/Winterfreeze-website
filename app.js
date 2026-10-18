@@ -1116,8 +1116,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     return `
     <section class="block">
       <span class="eyebrow">Leçons apprises</span><h2>Notes post-WTF 2026</h2>
-      <p class="lead">${esc(T.rotation)}</p>
-      <div class="grid">${T.bilan2026.map(([titre, items]) => `<div><h3>${esc(titre)}</h3><ul class="bullets">${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>`).join('')}</div>
+      <div class="grid">${T.bilan2026.map(([titre, items]) => `<div><h3>${esc(titre)}</h3>${titre === 'À retenir'
+        ? items.map(({ person, items: reminders }) => `<section class="reminder-group"><h4>${esc(person)}</h4><ul class="bullets">${reminders.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></section>`).join('')
+        : `<ul class="bullets">${items.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>`}</div>`).join('')}</div>
     </section>`;
   }
 
@@ -1135,8 +1136,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         const saving = planningSavingKeys.has(item.id);
         return `<article class="planning-item">
           <label class="planning-topic">
-            <input type="checkbox" data-planning-discussed="${esc(item.id)}"${discussed ? ' checked' : ''}${saving || !row ? ' disabled' : ''}>
             <span class="planning-topic-text">${esc(item.topic)}</span>
+          </label>
+          <label class="planning-discussed">
+            <input type="checkbox" data-planning-discussed="${esc(item.id)}"${discussed ? ' checked' : ''}${saving || !row ? ' disabled' : ''}>
             <span class="planning-discussed-label">Discuté</span>
           </label>
           <label class="planning-decision-label" for="planning-decision-${esc(item.id)}">Décision ou suivi</label>

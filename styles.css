@@ -213,17 +213,21 @@ tr.total td { font-weight: 700; border-bottom: 0; }
 .meal-form-card > .form-hint { display: block; margin-top: 12px; line-height: 1.6; }
 .planning-page > h2 { margin: 4px 0 8px; color: var(--ink); font: 700 36px/1.12 var(--serif); }
 .planning-page > .lead { max-width: 760px; }
-.planning-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
-.planning-item { min-width: 0; padding: 16px; border: 1px solid #d3e3ed; border-radius: 6px; background: linear-gradient(145deg, #fbfdff, #eef6fa); box-shadow: 0 4px 14px #254e650a; }
-.planning-topic { display: flex; align-items: flex-start; gap: 9px; min-height: 54px; color: var(--ink); font-size: 14px; font-weight: 700; line-height: 1.45; cursor: pointer; }
-.planning-topic input { flex: 0 0 17px; width: 17px; height: 17px; margin: 2px 0 0; accent-color: var(--accent); }
-.planning-topic-text { flex: 1; }
-.planning-discussed-label { flex: 0 0 auto; padding: 2px 6px; border-radius: 3px; color: var(--muted); background: #e6f1f7; font-size: 9px; font-weight: 700; }
-.planning-decision-label { display: block; margin: 13px 0 5px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
-.planning-item textarea { display: block; width: 100%; min-height: 76px; resize: vertical; border: 1px solid #d3e2ea; border-radius: 3px; padding: 9px 10px; color: var(--ink); background: #fbfdff; font: 12px/1.5 var(--sans); }
+.planning-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; margin-top: 18px; }
+.planning-item { min-width: 0; padding: 12px; border: 1px solid #d3e3ed; border-radius: 6px; background: linear-gradient(145deg, #fbfdff, #eef6fa); box-shadow: 0 4px 14px #254e650a; }
+.planning-topic { display: flex; justify-content: center; min-height: 0; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.4; text-align: center; }
+.planning-topic-text { max-width: 38ch; }
+.planning-discussed { display: flex !important; justify-content: center; align-items: center; gap: 6px !important; margin-top: 9px; cursor: pointer; }
+.planning-discussed input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+.planning-discussed-label { padding: 2px 6px; border-radius: 3px; color: var(--muted); background: #e6f1f7; font-size: 9px; font-weight: 700; }
+.planning-decision-label { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 9px; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: .07em; }
+.planning-item textarea { display: block; width: 100%; min-height: 52px; resize: vertical; border: 1px solid #d3e2ea; border-radius: 3px; padding: 7px 8px; color: var(--ink); background: #fbfdff; font: 12px/1.45 var(--sans); }
 .planning-item textarea:focus { outline: 2px solid #7bb4d0; outline-offset: 1px; }
-.planning-save { margin-top: 8px; padding: 9px 12px; background: var(--navy); font-size: 10px; }
+.planning-save { display: block; margin: 7px auto 0; min-height: 32px; padding: 7px 10px; background: var(--navy); font-size: 10px; }
 .planning-save:hover { background: #0a2030; }
+.reminder-group { margin-top: 14px; }
+.reminder-group h4 { margin: 0 0 4px; color: var(--navy); font: 700 13px/1.4 var(--sans); }
+.reminder-group .bullets { margin-top: 0; }
 .gallery-upload-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); align-items: end; gap: 12px; margin: 22px 0; padding: 16px; border: 1px solid #d3e3ed; border-radius: 6px; background: linear-gradient(145deg, #f5fafe, #eaf3f8); }
 .gallery-upload-form label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .gallery-upload-form input { min-width: 0; width: 100%; min-height: 40px; border: 1px solid var(--line); padding: 8px; color: var(--ink); background: var(--white); font: inherit; }
