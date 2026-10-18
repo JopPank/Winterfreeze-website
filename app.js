@@ -229,7 +229,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       : T.participants;
   }
   function calculateSettlements() {
-    const totalCents = expenses.reduce((sum, expense) => sum + Math.round(expense.amount * 100), 0);
+    const totalCents = expenses.reduce((sum, expense) =>
+      sum + (expense.category === 'Dépôt' ? 0 : Math.round(expense.amount * 100)), 0);
     const shares = Object.fromEntries(T.participants.map((person) => [person, 0]));
     for (const expense of expenses) {
       const participants = expenseParticipants(expense);
