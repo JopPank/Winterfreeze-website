@@ -224,16 +224,29 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     checklistRefreshTimer = setInterval(() => void refreshChecklists(), 30000);
   }
 
+  function expenseParticipants(expense) {
+    return Array.isArray(expense.split_between)
+      ? T.participants.filter((person) => expense.split_between.includes(person))
+      : T.participants;
+  }
   function calculateSettlements() {
     const totalCents = expenses.reduce((sum, expense) => sum + Math.round(expense.amount * 100), 0);
-    const baseShare = Math.floor(totalCents / T.participants.length);
-    let extraCents = totalCents % T.participants.length;
+    const shares = Object.fromEntries(T.participants.map((person) => [person, 0]));
+    for (const expense of expenses) {
+      const participants = expenseParticipants(expense);
+      if (!participants.length) continue;
+      const cents = Math.round(expense.amount * 100);
+      const baseShare = Math.floor(cents / participants.length);
+      let extraCents = cents % participants.length;
+      for (const person of participants) {
+        shares[person] += baseShare + (extraCents > 0 ? 1 : 0);
+        if (extraCents > 0) extraCents -= 1;
+      }
+    }
     const balances = T.participants.map((person) => {
       const paid = expenses.reduce((sum, expense) =>
         sum + (expense.payer === person ? Math.round(expense.amount * 100) : 0), 0);
-      const share = baseShare + (extraCents > 0 ? 1 : 0);
-      if (extraCents > 0) extraCents -= 1;
-      return { person, paid, balance: paid - share };
+      return { person, paid, balance: paid - shares[person] };
     });
     const debtors = balances.filter((person) => person.balance < 0).map((person) => ({ person: person.person, amount: -person.balance }));
     const creditors = balances.filter((person) => person.balance > 0).map((person) => ({ person: person.person, amount: person.balance }));
@@ -322,7 +335,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (location.hash === '#finances') show('finances');
     const { data, error } = await supabase
       .from('winterfreeze_expenses')
-      .select('id, description, category, amount, payer, created_by, created_at')
+      .select('id, description, category, amount, payer, split_between, created_by, created_at')
       .order('created_at', { ascending: false });
     expensesLoading = false;
     meals = [];
@@ -843,12 +856,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
           <div class="heading"><div><span class="eyebrow">Simple et équitable</span><h2>Dépenses partagées</h2></div><span class="count">${expenses.length} ENTRÉE${expenses.length === 1 ? '' : 'S'}</span></div>
           ${expenseError ? `<p class="finance-error" role="alert">${esc(expenseError)}</p>` : ''}
           <div class="expense-summary">
-            <div class="expense-total"><span>TOTAL DU VOYAGE</span><strong>${fmtCents(totalCents)}</strong><small>${money(share / 100)} par personne jusqu’ici</small></div>
+            <div class="expense-total"><span>TOTAL DU VOYAGE</span><strong>${fmtCents(totalCents)}</strong><small>${money(share / 100)} en moyenne par personne</small></div>
             <div class="participant-balances">${balances.map((person) => `<div><span>${esc(person.person)}</span><small>${fmtCents(person.paid)} payé</small><strong class="${person.balance < 0 ? 'owes' : person.balance > 0 ? 'owed' : ''}">${person.balance > 0 ? '+' : ''}${fmtCents(person.balance)}</strong></div>`).join('')}</div>
           </div>
           <section class="reimbursements">
             <h3>Remboursements suggérés</h3>
-            <p class="muted">${transfers.length ? 'Répartition indicative des dépenses, partagées également entre les huit participants.' : 'Les remboursements apparaîtront ici dès qu’une dépense est ajoutée.'}</p>
+            <p class="muted">${transfers.length ? 'Répartition calculée selon les participants sélectionnés pour chaque dépense.' : 'Les remboursements apparaîtront ici dès qu’une dépense est ajoutée.'}</p>
             ${transfers.length ? transfers.map((transfer) => `<div class="transfer-row"><span>${esc(transfer.from)} rembourse ${esc(transfer.to)}</span><strong>${fmtCents(transfer.cents)}</strong></div>`).join('') : '<div class="transfer-row"><span>Aucun remboursement à effectuer pour le moment.</span></div>'}
           </section>
           <p class="finance-private">Ces dépenses sont partagées en privé entre les huit comptes autorisés. Les dépenses ne sont jamais stockées dans ce navigateur.</p>
@@ -856,7 +869,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
           <div class="expense-list">
             ${expenses.length ? expenses.map((expense) => `<article class="expense-row">
               <span class="expense-icon" aria-hidden="true">↗</span>
-              <span class="expense-description">${esc(expense.description)}<small>${esc(expense.category)} · ${esc(expense.payer)} · ${esc(dateFmt.format(new Date(expense.created_at)))}</small></span>
+              <span class="expense-description">${esc(expense.description)}<small>${esc(expense.category)} · Payé par ${esc(expense.payer)} · Partagé entre ${esc(expenseParticipants(expense).join(', '))} · ${esc(dateFmt.format(new Date(expense.created_at)))}</small></span>
               <strong>${money(expense.amount)}</strong>
               ${expense.created_by === currentUser.id ? `<button class="delete-button" type="button" data-delete-expense="${esc(expense.id)}" aria-label="Supprimer ${esc(expense.description)}">×</button>` : ''}
             </article>`).join('') : '<p class="muted">Aucune dépense pour l’instant. Ajoutez les frais au fur et à mesure.</p>'}
@@ -871,7 +884,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
             <label>Catégorie<select name="category">${EXPENSE_CATEGORIES.map((category) => `<option>${esc(category)}</option>`).join('')}</select></label>
             <label>Montant (CAD)<div class="amount-input"><span>$</span><input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required></div></label>
             <label>Participant qui a payé<select name="payer">${T.participants.map((person) => `<option>${esc(person)}</option>`).join('')}</select></label>
-            <small class="form-hint">Partagé également entre les huit participants.</small>
+            <fieldset class="expense-split">
+              <legend>Répartir entre</legend>
+              <div class="expense-split-options">${T.participants.map((person) => `<label><input type="checkbox" name="split_between" value="${esc(person)}" checked><span>${esc(person)}</span></label>`).join('')}</div>
+              <small class="form-hint">Décochez les personnes qui ne partagent pas cette dépense.</small>
+            </fieldset>
             <button class="btn submit-expense" type="submit">Ajouter la dépense <span aria-hidden="true">↗</span></button>
           </form>
         </section>
@@ -1299,8 +1316,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     const description = String(fields.get('description') || '').trim();
     const amount = Math.round(Number(fields.get('amount')) * 100) / 100;
     const payer = String(fields.get('payer') || '');
-    if (!currentUser || !description || !Number.isFinite(amount) || amount <= 0 || !T.participants.includes(payer)) {
-      expenseError = 'Entrez une description, un montant positif et un participant valide.';
+    const splitBetween = fields.getAll('split_between').map(String);
+    if (!currentUser || !description || !Number.isFinite(amount) || amount <= 0 || !T.participants.includes(payer)
+      || splitBetween.length === 0 || splitBetween.some((person) => !T.participants.includes(person))) {
+      expenseError = 'Entrez une description, un montant positif, un participant valide et au moins une personne à inclure dans le partage.';
       show('finances');
       return;
     }
@@ -1310,6 +1329,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       category: String(fields.get('category') || ''),
       amount,
       payer,
+      split_between: splitBetween,
       created_by: currentUser.id,
     });
     if (error) {

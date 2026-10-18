@@ -4,9 +4,23 @@ create table if not exists public.winterfreeze_expenses (
   category text not null check (category in ('Dépôt', 'Activité', 'Boisson', 'Chalet', 'Collation', 'Divers', 'Gaz', 'Repas')),
   amount numeric(10, 2) not null check (amount > 0),
   payer text not null check (payer in ('Pat', 'Jop', 'Luc', 'Steve', 'Mike', 'Simon', 'Mathieu', 'Pierre')),
+  split_between text[] not null default ARRAY['Pat', 'Jop', 'Luc', 'Steve', 'Mike', 'Simon', 'Mathieu', 'Pierre']::text[],
   created_by uuid not null references auth.users(id) on delete restrict default auth.uid(),
   created_at timestamptz not null default now()
 );
+
+alter table public.winterfreeze_expenses
+  add column if not exists split_between text[] not null
+  default ARRAY['Pat', 'Jop', 'Luc', 'Steve', 'Mike', 'Simon', 'Mathieu', 'Pierre']::text[];
+
+alter table public.winterfreeze_expenses
+  drop constraint if exists winterfreeze_expenses_split_between_check;
+alter table public.winterfreeze_expenses
+  add constraint winterfreeze_expenses_split_between_check
+  check (
+    cardinality(split_between) > 0
+    and split_between <@ ARRAY['Pat', 'Jop', 'Luc', 'Steve', 'Mike', 'Simon', 'Mathieu', 'Pierre']::text[]
+  );
 
 create index if not exists winterfreeze_expenses_created_at_idx
   on public.winterfreeze_expenses (created_at desc);
