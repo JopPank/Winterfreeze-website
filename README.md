@@ -6,7 +6,7 @@ Site statique pour le voyage Winterfreeze, du 28 au 31 janvier 2027 au chalet Le
 - `equip-data.js` : équipement par personne et WTF Box (générés depuis le chiffrier)
 - Les listes et cases cochées sont partagées entre les navigateurs via Supabase.
 - Le plan des repas est partagé en direct; les participants peuvent ajouter ou modifier le menu, les responsables et les notes de chaque créneau.
-- Les dépenses sont partagées en direct dans Supabase et limitées aux comptes des huit participants; chaque dépense peut être répartie uniquement entre les participants concernés.
+- Les dépenses sont partagées en direct dans Supabase et limitées aux comptes des huit participants; chaque dépense peut être répartie uniquement entre les participants concernés. Elles ne sont pas actualisées périodiquement afin de ne pas interrompre la saisie; si la mise à jour en direct est indisponible, actualisez la page.
 - La galerie permet aux participants connectés de téléverser des photos privées et des légendes.
 - Les photos d’archive présentes à la racine du site sont affichées dans la galerie comme fichiers statiques.
 - Un compte participant Supabase est requis pour utiliser toutes les sections; la même session donne accès aux finances.

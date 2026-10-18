@@ -50,7 +50,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   let checklistEditMode = false;
   let editingChecklistItem = null;
   let financeChannel = null;
-  let financeRefreshTimer = null;
   let mealsChannel = null;
   let mealsRefreshTimer = null;
   let mealLoadPromise = null;
@@ -473,8 +472,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     galleryRefreshTimer = setInterval(() => void refreshGallery(), 30000);
   }
   function stopFinanceSync() {
-    if (financeRefreshTimer) clearInterval(financeRefreshTimer);
-    financeRefreshTimer = null;
     if (financeChannel && supabase) void supabase.removeChannel(financeChannel);
     financeChannel = null;
   }
@@ -486,11 +483,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       .on('postgres_changes', { event: '*', schema: 'public', table: 'winterfreeze_expenses' }, () => void refreshExpenses())
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          expenseError = 'La mise à jour en direct est indisponible. Les dépenses seront actualisées automatiquement.';
+          expenseError = 'La mise à jour en direct est indisponible. Actualisez la page pour voir les changements récents.';
           if (location.hash === '#finances') show('finances');
         }
       });
-    financeRefreshTimer = setInterval(() => void refreshExpenses(), 30000);
   }
   if (supabase) {
     supabase.auth.onAuthStateChange((_event, session) => {
