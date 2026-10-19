@@ -205,10 +205,8 @@ window.TRIP = {
       { person: 'Jop et Pat', items: ['Un gros Ziploc de glace maison suffit pour les drinks.'] },
       { person: 'À confirmer', items: [
         'Faire 3 tasses de riz pour le souper au porc.',
-        'Faire plus de buffalo chicken dip; peut-être que ce sera le souper.',
         'Casser la glace des marches du spa.',
         'Faire une marche après le souper.',
-        'Faire une soirée pub avec le chicken dip le jeudi.',
         'Prévoir une heure de préparation D&D dans le salon avant.',
         'Prévoir 1,5 sac de petites patates par déjeuner.',
         'Apporter du petit bois pour réussir à partir le premier feu.',
@@ -230,10 +228,14 @@ window.TRIP = {
     { id: 'confirm-grocery-list', topic: 'Confirmer la liste d’épicerie.' },
     { id: 'grocery-assignments', topic: 'Confirmer qui fait chaque épicerie : Costco (Luc), SAQ (Mike), épicerie (Mike et Jop).' },
     { id: 'dnd-schedule', topic: 'Confirmer l’horaire D&D : jeudi soir, puis vendredi après le déjeuner jusqu’au souper.' },
-    { id: 'mini-kcup', topic: 'Ajouter la mini-K-Cup dans la WTF Box.' },
-    { id: 'dnd-format', topic: 'La formule D&D du jeudi soir et du vendredi jusqu’au souper était parfaite : la reconduire ?' },
     { id: 'fire-starter', topic: 'Papier pour allumer le feu de foyer : Mike apporte le papier et le bois d’allumage.' },
     { id: 'maple-syrup', topic: 'Est-ce que Matt apporte son sirop ?' },
+    { id: 'steve-bagels-pretzels', topic: 'Steve : situation bagels / pretzels' },
+    {
+      id: 'luc-pork-porto',
+      topic: 'Luc',
+      initialDecision: '- Décider s’il faut réduire la quantité de sauce du porc au porto : il en est resté trop.\n- Décider s’il faut réduire la quantité d’échalotes du porc au porto.',
+    },
   ],
   dnd: {
     campagne: 'Empire of the Underling',

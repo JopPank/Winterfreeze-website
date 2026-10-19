@@ -472,7 +472,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
           T.planification2027.map((item) => ({
             discussion_key: item.id,
             discussed: false,
-            decision: '',
+            decision: item.initialDecision || '',
             updated_by: currentUser.id,
           })),
           { onConflict: 'discussion_key', ignoreDuplicates: true },
