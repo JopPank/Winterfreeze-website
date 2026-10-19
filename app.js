@@ -790,7 +790,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
             <dt>WiFi</dt><dd>${esc(c.wifi)}</dd>
             <dt>Location</dt><dd><a href="https://www.chaletsauquebec.com/en/31969" target="_blank" rel="noopener">Voir l’annonce du chalet</a></dd>
           </dl>
-          <img class="chalet-base-photo" src="le-simonet.png" alt="Chalet Le Simonet">
+          <img class="chalet-base-photo" src="le-simonet.png" width="612" height="454" fetchpriority="high" alt="Chalet Le Simonet">
         </div>
       </section>
     </div>
